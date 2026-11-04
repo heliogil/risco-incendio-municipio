@@ -4,18 +4,26 @@ DICIONÁRIO DE DADOS — Risco de incêndio por município e dia
 Base processada: dados/processado/grade_municipio_dia.parquet
 Gerada por: src/consolidar_base.py (passo a passo em 01_eda.ipynb)
 Tamanho: 2 109 514 linhas (5 566 municípios × 379 dias, de 31/01/2024 a
-12/02/2025) e 20 colunas.
+12/02/2025) e 26 colunas.
 
 Uma linha = um município num dia. O dia sem nenhum foco de queimada também
 é uma linha, com zero focos: a base original só registra onde houve fogo
 (viés de sobrevivência), e esses zeros são o que ensina o modelo a
 reconhecer o risco baixo.
 
-Origens (Base dos Dados, fornecidas pela TripleTen, em dados/brutos/):
+Origens:
+Fornecidas pela TripleTen (Base dos Dados), em dados/brutos/:
 - queimadas_2024_2025.csv  focos de queimada do INPE (Programa Queimadas)
 - MapBiomas.csv            área de cada classe de uso do solo por município e ano
 - BDMEP-2025.csv           medições horárias das estações do INMET (só 2025)
 - BDMEP-estacao.csv        cadastro das estações do INMET
+Complementos públicos:
+- dados/brutos/inmet_2024/ dados históricos anuais do INMET de 2024, um CSV por
+                           estação automática (portal.inmet.gov.br/dadoshistoricos,
+                           arquivo do ano 2024). Completa o clima que o BDMEP
+                           fornecido não cobre.
+- dados/externos/municipios.csv  coordenadas da sede de cada município
+                           (github.com/kelvins/municipios-brasileiros, licença MIT).
 
 
 IDENTIFICAÇÃO
@@ -40,8 +48,8 @@ fotografam a mesma região a cada poucos minutos e contam o mesmo incêndio
 várias vezes ao dia.
 
 
-HISTÓRICO (só o passado; o próprio dia nunca entra)
----------------------------------------------------
+HISTÓRICO DE FOCOS (só o passado; o próprio dia nunca entra)
+------------------------------------------------------------
 focos_ontem        numérica (int)    Focos no município no dia anterior.
 focos_7d           numérica (float)  Soma dos focos nos 7 dias anteriores.
 focos_30d          numérica (float)  Soma dos focos nos 30 dias anteriores.
@@ -50,6 +58,29 @@ dias_com_foco_30d  numérica (float)  Quantos dos 30 dias anteriores tiveram
 
 Os primeiros 30 dias da série (01/01 a 30/01/2024) foram retirados porque não
 têm 30 dias de passado para calcular o histórico.
+
+
+CLIMA DA VÉSPERA (estação boa mais próxima da sede do município)
+----------------------------------------------------------------
+distancia_estacao_km  numérica (float)  Distância da sede do município até a
+                                        estação usada. Vazio = nenhuma estação
+                                        boa a até 150 km (o clima fica vazio).
+umidade_min_ontem  numérica (float)  Umidade relativa mais baixa do dia
+                                     anterior (%).
+temp_max_ontem     numérica (float)  Temperatura máxima do dia anterior (°C).
+chuva_ontem        numérica (float)  Chuva somada no dia anterior (mm).
+vento_ontem        numérica (float)  Velocidade média do vento no dia
+                                     anterior (m/s).
+chuva_7d           numérica (float)  Chuva somada nos 7 dias anteriores (mm),
+                                     contando só os dias com medição.
+
+Regras do clima:
+- Estação "boa": mediu a umidade em pelo menos 80% dos dias (328 de 565).
+- Um valor diário só vale se a estação mediu pelo menos 18 das 24 horas.
+- O INMET marca "sem medição" com -9999, tratado como vazio.
+- 7,64% dos município-dias ficam sem a umidade da véspera (município a mais
+  de 150 km de estação boa, ou falha da estação naquele dia). Os vazios NÃO
+  foram preenchidos: o preenchimento é feito dentro do treino, na Etapa 2.
 
 
 CALENDÁRIO
@@ -73,40 +104,38 @@ perda_nativa_5a            numérica (float)  Perda de vegetação nativa
                                              entre 2016 e 2021, em proporção
                                              da área. Negativo = ganho.
 
-Grupos montados com a legenda oficial do MapBiomas, Coleção 8 (o dicionário
-fornecido pela TripleTen fala em 7 classes, mas o arquivo usa os códigos da
-legenda oficial):
+Grupos montados com a legenda oficial do MapBiomas, Coleção 7, a coleção que
+cobre 1985 a 2021, como o arquivo fornecido. (O dicionário fornecido pela
+TripleTen fala em 7 classes, mas o arquivo usa os 28 códigos da legenda.)
 
   floresta               3 formação florestal, 4 formação savânica,
-                         5 mangue, 6 floresta alagável, 49 restinga arbórea
+                         5 mangue, 49 restinga arborizada
   natural_nao_florestal  11 campo alagado e área pantanosa, 12 formação
                          campestre, 13 outras formações não florestais,
                          29 afloramento rochoso, 32 apicum, 50 restinga herbácea
   pastagem               15 pastagem
-  agricultura            9 silvicultura, 20 cana, 35 dendê, 39 soja, 40 arroz,
+  agricultura            9 silvicultura, 20 cana, 39 soja, 40 arroz,
                          41 outras lavouras temporárias, 46 café, 47 citrus,
                          48 outras lavouras perenes, 62 algodão
   mosaico                21 mosaico de usos
   nao_vegetada           23 praia, duna e areal, 24 área urbanizada,
                          25 outras áreas não vegetadas, 30 mineração
   agua                   31 aquicultura, 33 rio, lago e oceano
-  (fora dos grupos)      0 sem classe na legenda
+  (fora dos grupos)      0 não aparece na legenda oficial
 
 
 COLUNAS DAS BASES BRUTAS QUE NÃO ENTRAM COMO FEATURE
 ----------------------------------------------------
 risco_fogo, dias_sem_chuva, precipitacao (queimadas)
     Só existem nas linhas em que houve foco. Usar essas colunas seria
-    contar ao modelo que houve fogo.
+    contar ao modelo que houve fogo. O clima que entra vem das estações.
 bioma (queimadas)
     A única fonte de bioma por município é a própria base de queimadas: um
     município sem nenhum foco ficaria sem bioma, o que entregaria a resposta.
     Usado só nos gráficos.
-Medições do BDMEP
-    Cobrem só jan a jun de 2025 e coexistem com as queimadas por 43 dias.
-    Usadas no teste de hipótese da umidade (01_eda.ipynb, seção 7.2). O arquivo
-    traz quase toda medição duas vezes, idêntica; a análise usa só as linhas
-    distintas.
+Clima do próprio dia
+    Só o clima da véspera entra. O BDMEP fornecido traz quase toda medição
+    duas vezes, idêntica; a consolidação usa só as linhas distintas.
 
-Observação sobre datas: data_hora das queimadas está no horário de Greenwich
-(GMT), como fornecido pelo INPE. O dia da grade segue esse horário.
+Observação sobre datas: data_hora das queimadas e as horas do INMET estão no
+horário de Greenwich (UTC/GMT). O dia da grade segue esse horário.

@@ -1,0 +1,3 @@
+Coordenadas da sede de cada município brasileiro (código IBGE, latitude, longitude).
+Fonte: https://github.com/kelvins/municipios-brasileiros (licença MIT), arquivo csv/municipios.csv, baixado em 04/11/2026.
+Uso no projeto: calcular a distância de cada município até a estação meteorológica mais próxima.

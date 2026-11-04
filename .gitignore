@@ -2,4 +2,5 @@
 __pycache__/
 .ipynb_checkpoints/
 *.pyc
-dados/brutos/*.csv
+dados/brutos/**
+!dados/brutos/.gitkeep

@@ -1,4 +1,4 @@
-"""Consolida as bases de queimadas, MapBiomas e BDMEP numa grade município × dia.
+"""Consolida as bases de queimadas, MapBiomas e clima numa grade município × dia.
 
 A base de queimadas só registra onde o satélite viu fogo. Para o modelo aprender
 também o risco baixo, a grade inclui todos os municípios em todos os dias, e o
@@ -17,7 +17,21 @@ import duckdb
 
 RAIZ = Path(__file__).resolve().parent.parent
 BRUTOS = RAIZ / 'dados' / 'brutos'
+INMET_2024 = BRUTOS / 'inmet_2024'
+MUNICIPIOS = RAIZ / 'dados' / 'externos' / 'municipios.csv'
 ARQUIVO_PROCESSADO = RAIZ / 'dados' / 'processado' / 'grade_municipio_dia.parquet'
+
+# Clima: um valor diário só vale se a estação mediu pelo menos 18 das 24 horas.
+HORAS_MINIMAS = 18
+# Só entram estações com umidade medida em pelo menos 80% dos dias.
+COBERTURA_MINIMA = 0.8
+# Município a mais de 150 km da estação mais próxima fica sem clima.
+DISTANCIA_MAXIMA_KM = 150
+
+# Colunas dos CSVs do INMET 2024, na ordem do arquivo.
+COLUNAS_INMET = ['data', 'hora', 'chuva', 'pressao', 'pressao_max', 'pressao_min', 'radiacao', 'temperatura',
+                 'orvalho', 'temp_max', 'temp_min', 'orvalho_max', 'orvalho_min', 'umidade_max',
+                 'umidade_min', 'umidade', 'vento_direcao', 'rajada', 'vento', 'vazia']
 
 # Satélites geoestacionários fotografam a cada poucos minutos e repetem o mesmo
 # fogo; a contagem usa só os de órbita polar.
@@ -30,12 +44,12 @@ CORTE_ALTO = 4
 # Os primeiros 30 dias não têm histórico de 30 dias para trás e ficam fora.
 DIAS_SEM_HISTORICO = 30
 
-# Grupos da legenda oficial do MapBiomas (Coleção 8).
+# Grupos da legenda oficial do MapBiomas, Coleção 7 (a que cobre 1985 a 2021, como o arquivo fornecido).
 GRUPOS_MAPBIOMAS = {
-    'floresta': (3, 4, 5, 6, 49),
+    'floresta': (3, 4, 5, 49),
     'natural_nao_florestal': (11, 12, 13, 29, 32, 50),
     'pastagem': (15,),
-    'agricultura': (9, 20, 35, 39, 40, 41, 46, 47, 48, 62),
+    'agricultura': (9, 20, 39, 40, 41, 46, 47, 48, 62),
     'mosaico': (21,),
     'nao_vegetada': (23, 24, 25, 30),
     'agua': (31, 33),
@@ -50,7 +64,24 @@ def conectar():
     con.execute(f"CREATE VIEW mapbiomas AS SELECT * FROM read_csv('{BRUTOS / 'MapBiomas.csv'}', header=true)")
     con.execute(f"CREATE VIEW bdmep AS SELECT * FROM read_csv('{BRUTOS / 'BDMEP-2025.csv'}', header=true)")
     con.execute(f"CREATE VIEW estacoes AS SELECT * FROM read_csv('{BRUTOS / 'BDMEP-estacao.csv'}', header=true)")
+    # INMET 2024: um CSV por estação, com 9 linhas de cabeçalho antes dos dados
+    con.execute(f"""CREATE VIEW inmet_2024 AS SELECT * FROM read_csv('{(INMET_2024 / '*.CSV').as_posix()}',
+        skip=9, header=false, delim=';', decimal_separator=',', encoding='latin-1',
+        names={COLUNAS_INMET}, filename=true)""")
+    con.execute(f"CREATE VIEW municipios AS SELECT * FROM read_csv('{MUNICIPIOS.as_posix()}', header=true)")
     return con
+
+
+def _coordenadas_inmet_2024():
+    """Lê o código, a latitude e a longitude que ficam no cabeçalho de cada CSV do INMET 2024."""
+    estacoes = []
+    for arquivo in sorted(INMET_2024.glob('*.CSV')):
+        with open(arquivo, encoding='latin-1') as f:
+            cabecalho = dict(linha.strip().split(':;') for linha in [next(f) for _ in range(8)])
+        estacoes.append((cabecalho['CODIGO (WMO)'],
+                         float(cabecalho['LATITUDE'].replace(',', '.')),
+                         float(cabecalho['LONGITUDE'].replace(',', '.'))))
+    return estacoes
 
 
 def _lista(codigos):
@@ -123,14 +154,130 @@ SELECT
     SUM(CASE WHEN focos > 0 THEN 1 ELSE 0 END)
         OVER (janela ROWS BETWEEN 30 PRECEDING AND 1 PRECEDING) AS dias_com_foco_30d,
                                               -- quantos dos 30 dias anteriores tiveram fogo
-    ROW_NUMBER() OVER janela AS dia_da_serie  -- 1 no primeiro dia, 2 no segundo... (usado no passo 7)
+    ROW_NUMBER() OVER janela AS dia_da_serie  -- 1 no primeiro dia, 2 no segundo... (usado no passo 11)
+FROM grade
+WINDOW janela AS (PARTITION BY id_municipio ORDER BY dia)
+""")
+
+
+def ler_clima_horario(con):
+    """Passo 4: junta as medições de hora em hora do INMET 2024 e do BDMEP 2025."""
+    return _rodar(con, """
+-- Cria a tabela clima_horario: uma linha por estação e hora, de 2024 até o último dia da grade.
+CREATE OR REPLACE TABLE clima_horario AS
+SELECT
+    split_part(parse_filename(filename), '_', 4) AS id_estacao,
+                                              -- o código da estação está no nome do arquivo
+    CAST(data AS DATE) AS dia,
+    NULLIF(chuva, -9999) AS chuva,            -- o INMET usa -9999 para "sem medição"
+    NULLIF(temp_max, -9999) AS temp_max,
+    NULLIF(umidade_min, -9999) AS umidade_min,
+    NULLIF(vento, -9999) AS vento
+FROM inmet_2024
+UNION ALL                                     -- empilha embaixo as linhas de 2025
+SELECT id_estacao, CAST(data AS DATE), precipitacao_total, temperatura_max, umidade_rel_min, vento_velocidade
+FROM (SELECT DISTINCT * FROM bdmep)           -- o BDMEP vem com as linhas em dobro: fica uma de cada
+WHERE data <= (SELECT MAX(dia) FROM grade)
+""")
+
+
+def agregar_clima_diario(con):
+    """Passo 5: transforma as medições de hora em hora em um valor por estação e dia."""
+    return _rodar(con, f"""
+-- Um valor diário só vale se a estação mediu pelo menos {HORAS_MINIMAS} das 24 horas.
+CREATE OR REPLACE TABLE clima_diario AS
+SELECT
+    id_estacao,
+    dia,
+    CASE WHEN COUNT(umidade_min) >= {HORAS_MINIMAS} THEN MIN(umidade_min) END AS umidade_min,
+                                              -- a umidade mais baixa do dia (%)
+    CASE WHEN COUNT(temp_max) >= {HORAS_MINIMAS} THEN MAX(temp_max) END AS temp_max,
+                                              -- a temperatura mais alta do dia (°C)
+    CASE WHEN COUNT(chuva) >= {HORAS_MINIMAS} THEN CAST(SUM(CAST(chuva AS DECIMAL(9, 2))) AS DOUBLE) END AS chuva,
+                                              -- a chuva somada do dia (mm); somar em DECIMAL é exato
+                                              -- e dá sempre o mesmo resultado, em qualquer ordem
+    CASE WHEN COUNT(vento) >= {HORAS_MINIMAS} THEN CAST(ROUND(AVG(CAST(vento AS DECIMAL(9, 2))), 2) AS DOUBLE) END AS vento
+                                              -- a velocidade média do vento no dia (m/s)
+FROM clima_horario
+GROUP BY id_estacao, dia
+""")
+
+
+def ligar_estacao_proxima(con):
+    """Passo 6: liga cada município à estação boa mais próxima da sua sede."""
+    con.execute('CREATE OR REPLACE TABLE coordenadas_2024 (id_estacao VARCHAR, latitude DOUBLE, longitude DOUBLE)')
+    con.executemany('INSERT INTO coordenadas_2024 VALUES (?, ?, ?)', _coordenadas_inmet_2024())
+    return _rodar(con, f"""
+-- Coordenadas das estações: do cabeçalho dos arquivos de 2024 e, para as que faltarem, do cadastro do BDMEP.
+CREATE OR REPLACE TABLE coordenadas AS
+SELECT id_estacao, latitude, longitude FROM coordenadas_2024
+UNION
+SELECT id_estacao, latitude, longitude FROM estacoes
+WHERE id_estacao NOT IN (SELECT id_estacao FROM coordenadas_2024);
+
+-- Estação "boa": mediu a umidade em pelo menos {COBERTURA_MINIMA:.0%} dos dias.
+CREATE OR REPLACE TABLE estacoes_boas AS
+SELECT id_estacao
+FROM clima_diario
+GROUP BY id_estacao
+HAVING AVG(CASE WHEN umidade_min IS NOT NULL THEN 1 ELSE 0 END) >= {COBERTURA_MINIMA};
+
+-- Distância em km entre a sede de cada município e cada estação boa (fórmula de Haversine,
+-- que mede a distância sobre a superfície da Terra) e, para cada município, a mais próxima.
+CREATE OR REPLACE TABLE estacao_proxima AS
+WITH distancias AS (
+    SELECT
+        m.codigo_ibge AS id_municipio,
+        c.id_estacao,
+        2 * 6371 * ASIN(SQRT(
+            POWER(SIN(RADIANS(c.latitude - m.latitude) / 2), 2)
+            + COS(RADIANS(m.latitude)) * COS(RADIANS(c.latitude))
+              * POWER(SIN(RADIANS(c.longitude - m.longitude) / 2), 2))) AS distancia_km
+    FROM municipios m
+    CROSS JOIN coordenadas c                  -- cada município com cada estação
+    WHERE c.id_estacao IN (SELECT id_estacao FROM estacoes_boas)
+)
+SELECT
+    id_municipio,
+    ARG_MIN(id_estacao, distancia_km) AS id_estacao,
+                                              -- a estação com a menor distância
+    MIN(distancia_km) AS distancia_estacao_km
+FROM distancias
+GROUP BY id_municipio
+""")
+
+
+def criar_clima_vespera(con):
+    """Passo 7: o clima da véspera (e da última semana) na estação do município."""
+    return _rodar(con, f"""
+-- Primeiro, traz para cada município e dia o clima medido naquele dia na sua estação.
+-- Município a mais de {DISTANCIA_MAXIMA_KM} km da estação fica sem clima (vazio).
+CREATE OR REPLACE TABLE grade AS
+SELECT g.*, p.distancia_estacao_km, c.umidade_min, c.temp_max, c.chuva, c.vento
+FROM grade g
+LEFT JOIN estacao_proxima p
+    ON p.id_municipio = g.id_municipio AND p.distancia_estacao_km <= {DISTANCIA_MAXIMA_KM}
+LEFT JOIN clima_diario c
+    ON c.id_estacao = p.id_estacao AND c.dia = g.dia;
+
+-- Depois, desloca tudo um dia para trás: o modelo só pode ver o clima de ATÉ ONTEM.
+-- O clima do próprio dia sai da tabela no fim.
+CREATE OR REPLACE TABLE grade AS
+SELECT
+    * EXCLUDE (umidade_min, temp_max, chuva, vento),
+    LAG(umidade_min, 1) OVER janela AS umidade_min_ontem,
+    LAG(temp_max, 1) OVER janela AS temp_max_ontem,
+    LAG(chuva, 1) OVER janela AS chuva_ontem,
+    LAG(vento, 1) OVER janela AS vento_ontem,
+    CAST(SUM(CAST(chuva AS DECIMAL(9, 2))) OVER (janela ROWS BETWEEN 7 PRECEDING AND 1 PRECEDING) AS DOUBLE) AS chuva_7d
+                                              -- chuva somada nos 7 dias anteriores (sem hoje)
 FROM grade
 WINDOW janela AS (PARTITION BY id_municipio ORDER BY dia)
 """)
 
 
 def criar_calendario(con):
-    """Passo 4: o mês e o dia do ano, porque o fogo tem estação."""
+    """Passo 8: o mês e o dia do ano, porque o fogo tem estação."""
     return _rodar(con, """
 CREATE OR REPLACE TABLE grade AS
 SELECT
@@ -142,7 +289,7 @@ FROM grade
 
 
 def criar_uso_do_solo(con):
-    """Passo 5: o uso do solo de cada município (MapBiomas 2021) e a perda de vegetação nativa."""
+    """Passo 9: o uso do solo de cada município (MapBiomas 2021) e a perda de vegetação nativa."""
     colunas = ',\n'.join(
         f"    SUM(CASE WHEN ano = 2021 AND id_classe IN ({_lista(codigos)}) THEN area ELSE 0 END)\n"
         f"        / SUM(CASE WHEN ano = 2021 THEN area ELSE 0 END) AS pct_{grupo}"
@@ -173,7 +320,7 @@ LEFT JOIN uso_solo u ON u.id_municipio = g.id_municipio
 
 
 def criar_alvo(con):
-    """Passo 6: o nível de risco do dia, a partir do número de focos."""
+    """Passo 10: o nível de risco do dia, a partir do número de focos."""
     return _rodar(con, f"""
 CREATE OR REPLACE TABLE grade AS
 SELECT
@@ -188,7 +335,7 @@ FROM grade
 
 
 def remover_sem_historico(con):
-    """Passo 7: tira os primeiros 30 dias, que não têm 30 dias de passado."""
+    """Passo 11: tira os primeiros 30 dias, que não têm 30 dias de passado."""
     return _rodar(con, f"""
 CREATE OR REPLACE TABLE grade AS
 SELECT * EXCLUDE (dia_da_serie)               -- todas as colunas, menos a auxiliar do passo 3
@@ -198,8 +345,9 @@ ORDER BY id_municipio, dia
 """)
 
 
-PASSOS = [contar_focos, montar_grade, criar_historico, criar_calendario,
-          criar_uso_do_solo, criar_alvo, remover_sem_historico]
+PASSOS = [contar_focos, montar_grade, criar_historico,
+          ler_clima_horario, agregar_clima_diario, ligar_estacao_proxima, criar_clima_vespera,
+          criar_calendario, criar_uso_do_solo, criar_alvo, remover_sem_historico]
 
 
 def preparar(con):
