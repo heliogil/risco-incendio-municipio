@@ -17,14 +17,16 @@ Brigadas e defesa civil precisam decidir, todo dia, onde deixar equipes de pront
 
 ## Como vamos medir o sucesso (KPIs)
 
-A régua é a regra mais simples que uma brigada usaria sem modelo nenhum: **"o risco de hoje é o mesmo de ontem"**. O modelo só vale a pena se fizer melhor do que ela, medido em dias que ele não viu durante o treino.
+A régua é uma **referência estatística mínima**, chamada persistência: prever que **o risco de hoje é o mesmo de ontem**. Ela não descreve como uma brigada trabalha. Na prática, as equipes costumam usar a previsão diária de risco de fogo do INPE, a previsão do tempo e o conhecimento do território. A persistência serve como piso: um modelo que não supere nem ela não tem valor. O modelo é comparado com ela em dias que ele não viu durante o treino.
 
-| O que queremos saber | A regra simples hoje | Meta do modelo |
+A régua ideal seria a própria previsão de risco do INPE. Mas, na base fornecida, o risco do INPE só aparece nos dias em que já houve fogo (o viés de sobrevivência descrito abaixo), então essa comparação não é possível aqui.
+
+| O que queremos saber | Persistência (referência mínima) | Meta do modelo |
 |---|---|---|
 | **Avisos a tempo:** dos dias de risco Alto, quantos são avisados com antecedência? *(recall do Alto)* | 56 de cada 100 | mais que 56 |
 | **Avisos certos:** dos avisos de risco Alto, quantos se confirmam? *(precisão do Alto)* | 56 de cada 100 | não piorar ao avisar mais |
 | **Acerto geral:** nota de 0 a 1 que pesa igualmente os acertos de Baixo, Médio e Alto *(F1 macro)* | 0,57 | acima de 0,57 |
-| **Custo:** gasto com equipes em dias que não pegam fogo + prejuízo dos dias de risco Alto sem equipe | calculado na Etapa 2 | menor que o da regra simples, em reais |
+| **Custo:** gasto com equipes em dias que não pegam fogo + prejuízo dos dias de risco Alto sem equipe | calculado na Etapa 2 | menor que o da persistência, em reais |
 
 **Por que não medir só "quantos dias acertou"?** Porque 85,81% dos dias são Baixo. Um modelo que dissesse "Baixo" todo dia acertaria 85,81% e nunca avisaria um incêndio. Por isso as metas olham para os dias de risco Alto e para uma nota que dá o mesmo peso aos três níveis.
 
@@ -45,7 +47,7 @@ Bases da [Base dos Dados](https://basedosdados.org/), fornecidas pela TripleTen:
 - **BDMEP (INMET):** medições horárias de 567 estações, de 01/01 a 30/06/2025.
 - **Estações do BDMEP:** cadastro de 612 estações.
 
-Os arquivos brutos (cerca de 1,5 GB) não estão no repositório. Para rodar, copie os quatro CSVs fornecidos pela TripleTen para `dados/brutos/`.
+Os arquivos brutos (cerca de 1,5 GB) não estão no repositório, porque passam do limite de tamanho do GitHub. Para rodar, copie para `dados/brutos/` os quatro CSVs fornecidos pela TripleTen: `queimadas_2024_2025.csv`, `MapBiomas.csv`, `BDMEP-2025.csv` e `BDMEP-estacao.csv`. Os mesmos dados são públicos na [Base dos Dados](https://basedosdados.org/), nos conjuntos de focos de queimada do INPE, de estatísticas do MapBiomas e do BDMEP do INMET. A base já processada, que é o que os modelos usam, está no repositório.
 
 O dicionário completo está em [`dicionario_dados.txt`](dicionario_dados.txt).
 
@@ -53,11 +55,13 @@ O dicionário completo está em [`dicionario_dados.txt`](dicionario_dados.txt).
 
 A consolidação é feita em SQL por [`src/consolidar_base.py`](src/consolidar_base.py), com cada consulta comentada linha por linha em português. O notebook mostra cada passo com a consulta, um resumo dos comandos de SQL usados e o resultado num município de exemplo (Altamira, PA). O SQL roda no DuckDB, que lê os CSVs grandes direto do disco, sem precisar de um banco de dados instalado. Os passos são:
 
-1. Conta os focos de satélites de órbita polar por município e dia, sem duplicados. Os geoestacionários contam o mesmo fogo várias vezes ao dia.
-2. Monta a grade município × dia, com zero no dia sem foco.
-3. Cria o histórico de focos (ontem, 7 e 30 dias), sempre sem o próprio dia.
-4. Acrescenta o calendário e o uso do solo do MapBiomas (2021) e a perda de vegetação nativa de 2016 a 2021.
-5. Cria o alvo e retira os primeiros 30 dias, que não têm histórico.
+1. **Contar os focos** de satélites de órbita polar por município e dia, sem duplicados. Os geoestacionários contam o mesmo fogo várias vezes ao dia.
+2. **Montar a grade** com todos os municípios em todos os dias, com zero no dia sem foco.
+3. **Criar o histórico** de focos (ontem, últimos 7 e 30 dias), sempre sem o próprio dia.
+4. **Criar o calendário:** mês e dia do ano.
+5. **Acrescentar o uso do solo** do MapBiomas (2021) e a perda de vegetação nativa de 2016 a 2021.
+6. **Criar o alvo:** Baixo, Médio ou Alto, pelo número de focos.
+7. **Retirar os primeiros 30 dias,** que não têm 30 dias de passado para calcular o histórico.
 
 O resultado é [`dados/processado/grade_municipio_dia.parquet`](dados/processado/), com 2 109 514 linhas e 20 colunas.
 
