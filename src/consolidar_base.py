@@ -4,9 +4,10 @@ A base de queimadas só registra onde o satélite viu fogo. Para o modelo aprend
 também o risco baixo, a grade inclui todos os municípios em todos os dias, e o
 dia sem foco vale zero (viés de sobrevivência, ver 01_eda.ipynb).
 
-Cada passo é uma consulta SQL no DuckDB, para o notebook de EDA poder mostrar o
-efeito de cada um. Rodar este arquivo direto executa todos os passos e salva a
-base processada:
+Cada passo é uma consulta SQL no DuckDB, comentada linha por linha. Cada função
+roda a sua consulta e devolve o texto dela, para o notebook de EDA poder mostrar
+a consulta e o efeito de cada passo. Rodar este arquivo direto executa todos os
+passos e salva a base processada:
 
     python src/consolidar_base.py
 """
@@ -43,6 +44,7 @@ NATIVOS = GRUPOS_MAPBIOMAS['floresta'] + GRUPOS_MAPBIOMAS['natural_nao_florestal
 
 
 def conectar():
+    """Abre o DuckDB e cria uma "visão" (um atalho com nome) para cada CSV bruto."""
     con = duckdb.connect()
     con.execute(f"CREATE VIEW queimadas AS SELECT * FROM read_csv('{BRUTOS / 'queimadas_2024_2025.csv'}', delim=';', header=true)")
     con.execute(f"CREATE VIEW mapbiomas AS SELECT * FROM read_csv('{BRUTOS / 'MapBiomas.csv'}', header=true)")
@@ -55,95 +57,145 @@ def _lista(codigos):
     return ', '.join(str(c) for c in codigos)
 
 
+def _rodar(con, sql):
+    con.execute(sql)
+    return sql.strip()
+
+
 def contar_focos(con):
-    """Focos de satélites polares por município e dia, sem os focos duplicados."""
-    con.execute(f"""
-        CREATE OR REPLACE TABLE focos_dia AS
-        SELECT id_municipio, CAST(data_hora AS DATE) AS dia,
-               count(DISTINCT (data_hora, latitude, longitude, satelite)) AS focos
-        FROM queimadas
-        WHERE satelite NOT IN {GEOESTACIONARIOS}
-        GROUP BY 1, 2
-    """)
+    """Passo 1: quantos focos cada município teve em cada dia."""
+    return _rodar(con, f"""
+-- Cria a tabela focos_dia: uma linha por município e dia que teve fogo.
+CREATE OR REPLACE TABLE focos_dia AS
+SELECT
+    id_municipio,
+    CAST(data_hora AS DATE) AS dia,           -- tira a hora e fica só a data
+    COUNT(DISTINCT (data_hora, latitude, longitude, satelite)) AS focos
+                                              -- conta focos diferentes (repetidos contam uma vez)
+FROM queimadas
+WHERE satelite NOT IN {GEOESTACIONARIOS}      -- deixa de fora os satélites que repetem o mesmo fogo
+GROUP BY id_municipio, dia                    -- junta tudo do mesmo município no mesmo dia
+""")
 
 
 def montar_grade(con):
-    """Todos os municípios do MapBiomas × todos os dias do período, com zero no dia sem foco."""
-    con.execute("""
-        CREATE OR REPLACE TABLE grade AS
-        WITH municipios AS (SELECT DISTINCT id_municipio, sigla_uf FROM mapbiomas),
-             periodo AS (SELECT min(CAST(data_hora AS DATE)) AS ini, max(CAST(data_hora AS DATE)) AS fim FROM queimadas),
-             dias AS (SELECT CAST(d AS DATE) AS dia
-                      FROM periodo, range(periodo.ini, periodo.fim + INTERVAL 1 DAY, INTERVAL 1 DAY) t(d))
-        SELECT m.id_municipio, m.sigla_uf, d.dia, coalesce(f.focos, 0) AS focos
-        FROM municipios m CROSS JOIN dias d
-        LEFT JOIN focos_dia f USING (id_municipio, dia)
-    """)
+    """Passo 2: todos os municípios em todos os dias, com zero no dia sem foco."""
+    return _rodar(con, """
+-- Cria a tabela grade: uma linha para cada município em cada dia do período.
+CREATE OR REPLACE TABLE grade AS
+WITH
+    -- a lista de municípios, tirada do MapBiomas
+    municipios AS (SELECT DISTINCT id_municipio, sigla_uf FROM mapbiomas),
+    -- a lista de todos os dias, do primeiro ao último dia com foco na base
+    dias AS (
+        SELECT CAST(dia AS DATE) AS dia
+        FROM generate_series(
+            (SELECT MIN(CAST(data_hora AS DATE)) FROM queimadas),
+            (SELECT MAX(CAST(data_hora AS DATE)) FROM queimadas),
+            INTERVAL 1 DAY) AS t(dia)
+    )
+SELECT
+    m.id_municipio,
+    m.sigla_uf,
+    d.dia,
+    COALESCE(f.focos, 0) AS focos             -- se o dia não teve foco, vale 0
+FROM municipios m
+CROSS JOIN dias d                             -- combina cada município com cada dia
+LEFT JOIN focos_dia f                         -- traz os focos do passo 1, quando existem
+    ON f.id_municipio = m.id_municipio AND f.dia = d.dia
+""")
 
 
 def criar_historico(con):
-    """Focos dos dias anteriores. Só usa o passado: o dia da previsão fica fora da janela."""
-    con.execute("""
-        CREATE OR REPLACE TABLE grade AS
-        SELECT *,
-            lag(focos, 1) OVER w AS focos_ontem,
-            sum(focos) OVER (w ROWS BETWEEN 7 PRECEDING AND 1 PRECEDING) AS focos_7d,
-            sum(focos) OVER (w ROWS BETWEEN 30 PRECEDING AND 1 PRECEDING) AS focos_30d,
-            sum((focos > 0)::INT) OVER (w ROWS BETWEEN 30 PRECEDING AND 1 PRECEDING) AS dias_com_foco_30d,
-            row_number() OVER w AS dia_da_serie
-        FROM grade
-        WINDOW w AS (PARTITION BY id_municipio ORDER BY dia)
-    """)
+    """Passo 3: os focos dos dias anteriores. O próprio dia nunca entra na conta."""
+    return _rodar(con, """
+-- Acrescenta à grade o histórico de focos de cada município.
+-- "OVER (PARTITION BY ... ORDER BY ...)" é uma função de janela: para cada linha,
+-- olha as outras linhas do MESMO município, em ordem de data.
+CREATE OR REPLACE TABLE grade AS
+SELECT
+    *,
+    LAG(focos, 1) OVER janela AS focos_ontem, -- o valor de focos na linha anterior (ontem)
+    SUM(focos) OVER (janela ROWS BETWEEN 7 PRECEDING AND 1 PRECEDING) AS focos_7d,
+                                              -- soma dos 7 dias anteriores (sem hoje)
+    SUM(focos) OVER (janela ROWS BETWEEN 30 PRECEDING AND 1 PRECEDING) AS focos_30d,
+                                              -- soma dos 30 dias anteriores (sem hoje)
+    SUM(CASE WHEN focos > 0 THEN 1 ELSE 0 END)
+        OVER (janela ROWS BETWEEN 30 PRECEDING AND 1 PRECEDING) AS dias_com_foco_30d,
+                                              -- quantos dos 30 dias anteriores tiveram fogo
+    ROW_NUMBER() OVER janela AS dia_da_serie  -- 1 no primeiro dia, 2 no segundo... (usado no passo 7)
+FROM grade
+WINDOW janela AS (PARTITION BY id_municipio ORDER BY dia)
+""")
 
 
 def criar_calendario(con):
-    con.execute("""
-        CREATE OR REPLACE TABLE grade AS
-        SELECT *, month(dia) AS mes, dayofyear(dia) AS dia_do_ano FROM grade
-    """)
+    """Passo 4: o mês e o dia do ano, porque o fogo tem estação."""
+    return _rodar(con, """
+CREATE OR REPLACE TABLE grade AS
+SELECT
+    *,
+    MONTH(dia) AS mes,                        -- 1 a 12
+    DAYOFYEAR(dia) AS dia_do_ano              -- 1 a 366
+FROM grade
+""")
 
 
 def criar_uso_do_solo(con):
-    """Proporção de cada grupo do MapBiomas em 2021 e a perda de vegetação nativa entre 2016 e 2021."""
+    """Passo 5: o uso do solo de cada município (MapBiomas 2021) e a perda de vegetação nativa."""
     colunas = ',\n'.join(
-        f"coalesce(sum(area) FILTER (WHERE id_classe IN ({_lista(codigos)})), 0) / sum(area) AS pct_{grupo}"
+        f"    SUM(CASE WHEN ano = 2021 AND id_classe IN ({_lista(codigos)}) THEN area ELSE 0 END)\n"
+        f"        / SUM(CASE WHEN ano = 2021 THEN area ELSE 0 END) AS pct_{grupo}"
         for grupo, codigos in GRUPOS_MAPBIOMAS.items())
-    con.execute(f"""
-        CREATE OR REPLACE TABLE uso_solo AS
-        WITH ano_2021 AS (
-            SELECT id_municipio, sum(area) AS area_km2, {colunas}
-            FROM mapbiomas WHERE ano = 2021 GROUP BY 1),
-        nativa AS (
-            SELECT id_municipio,
-                sum(area) FILTER (WHERE ano = 2016 AND id_classe IN ({_lista(NATIVOS)})) AS nativa_2016,
-                sum(area) FILTER (WHERE ano = 2021 AND id_classe IN ({_lista(NATIVOS)})) AS nativa_2021
-            FROM mapbiomas GROUP BY 1)
-        SELECT a.*, coalesce((n.nativa_2016 - n.nativa_2021) / a.area_km2, 0) AS perda_nativa_5a
-        FROM ano_2021 a LEFT JOIN nativa n USING (id_municipio)
-    """)
-    con.execute("""
-        CREATE OR REPLACE TABLE grade AS
-        SELECT g.*, u.* EXCLUDE (id_municipio) FROM grade g LEFT JOIN uso_solo u USING (id_municipio)
-    """)
+    nativos = _lista(NATIVOS)
+    return _rodar(con, f"""
+-- Primeiro, uma tabela com uma linha por município.
+CREATE OR REPLACE TABLE uso_solo AS
+SELECT
+    id_municipio,
+    SUM(CASE WHEN ano = 2021 THEN area ELSE 0 END) AS area_km2,
+                                              -- área total do município em 2021
+    -- para cada grupo: área do grupo em 2021 ÷ área total = proporção de 0 a 1
+{colunas},
+    -- perda de vegetação nativa: (área nativa em 2016 - área nativa em 2021) ÷ área total
+    (SUM(CASE WHEN ano = 2016 AND id_classe IN ({nativos}) THEN area ELSE 0 END)
+     - SUM(CASE WHEN ano = 2021 AND id_classe IN ({nativos}) THEN area ELSE 0 END))
+        / SUM(CASE WHEN ano = 2021 THEN area ELSE 0 END) AS perda_nativa_5a
+FROM mapbiomas
+GROUP BY id_municipio;
+
+-- Depois, essas colunas são coladas em todas as linhas (todos os dias) do município.
+CREATE OR REPLACE TABLE grade AS
+SELECT g.*, u.area_km2, {', '.join(f'u.pct_{g}' for g in GRUPOS_MAPBIOMAS)}, u.perda_nativa_5a
+FROM grade g
+LEFT JOIN uso_solo u ON u.id_municipio = g.id_municipio
+""")
 
 
 def criar_alvo(con):
-    """Nível de risco do dia: Baixo (sem foco), Médio (1 a 3 focos), Alto (4 ou mais)."""
-    con.execute(f"""
-        CREATE OR REPLACE TABLE grade AS
-        SELECT *, CASE WHEN focos >= {CORTE_ALTO} THEN 'Alto'
-                       WHEN focos >= {CORTE_MEDIO} THEN 'Médio'
-                       ELSE 'Baixo' END AS nivel_risco
-        FROM grade
-    """)
+    """Passo 6: o nível de risco do dia, a partir do número de focos."""
+    return _rodar(con, f"""
+CREATE OR REPLACE TABLE grade AS
+SELECT
+    *,
+    CASE
+        WHEN focos >= {CORTE_ALTO} THEN 'Alto'      -- 4 ou mais focos
+        WHEN focos >= {CORTE_MEDIO} THEN 'Médio'    -- 1 a 3 focos
+        ELSE 'Baixo'                         -- nenhum foco
+    END AS nivel_risco
+FROM grade
+""")
 
 
 def remover_sem_historico(con):
-    con.execute(f"""
-        CREATE OR REPLACE TABLE grade AS
-        SELECT * EXCLUDE (dia_da_serie) FROM grade WHERE dia_da_serie > {DIAS_SEM_HISTORICO}
-        ORDER BY id_municipio, dia
-    """)
+    """Passo 7: tira os primeiros 30 dias, que não têm 30 dias de passado."""
+    return _rodar(con, f"""
+CREATE OR REPLACE TABLE grade AS
+SELECT * EXCLUDE (dia_da_serie)               -- todas as colunas, menos a auxiliar do passo 3
+FROM grade
+WHERE dia_da_serie > {DIAS_SEM_HISTORICO}                 -- só a partir do 31º dia da série
+ORDER BY id_municipio, dia
+""")
 
 
 PASSOS = [contar_focos, montar_grade, criar_historico, criar_calendario,

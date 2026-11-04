@@ -15,15 +15,20 @@ Brigadas e defesa civil precisam decidir, todo dia, onde deixar equipes de pront
 | Médio | 1 a 3 focos | 7,89% |
 | Alto | 4 ou mais focos | 6,30% |
 
-## KPIs
+## Como vamos medir o sucesso (KPIs)
 
-| Tipo | Meta | Referência: regra "o risco de hoje é o de ontem" |
+A régua é a regra mais simples que uma brigada usaria sem modelo nenhum: **"o risco de hoje é o mesmo de ontem"**. O modelo só vale a pena se fizer melhor do que ela, medido em dias que ele não viu durante o treino.
+
+| O que queremos saber | A regra simples hoje | Meta do modelo |
 |---|---|---|
-| Técnico | F1 macro acima da regra de referência, no conjunto de teste | F1 macro 0,5670 |
-| Técnico | Recall da classe Alto acima da regra de referência | recall Alto 0,5569 |
-| Negócio | Custo total de prontidão menor que o da regra de referência. O custo soma as equipes posicionadas em dias que não pegam fogo e os dias Alto sem equipe, e vira reais na Etapa 2 | precisão Alto 0,5566 e recall Alto 0,5569 |
+| **Avisos a tempo:** dos dias de risco Alto, quantos são avisados com antecedência? *(recall do Alto)* | 56 de cada 100 | mais que 56 |
+| **Avisos certos:** dos avisos de risco Alto, quantos se confirmam? *(precisão do Alto)* | 56 de cada 100 | não piorar ao avisar mais |
+| **Acerto geral:** nota de 0 a 1 que pesa igualmente os acertos de Baixo, Médio e Alto *(F1 macro)* | 0,57 | acima de 0,57 |
+| **Custo:** gasto com equipes em dias que não pegam fogo + prejuízo dos dias de risco Alto sem equipe | calculado na Etapa 2 | menor que o da regra simples, em reais |
 
-O F1 macro dá o mesmo peso às três classes. Assim, o modelo não pode "ganhar" só acertando os dias Baixo.
+**Por que não medir só "quantos dias acertou"?** Porque 85,81% dos dias são Baixo. Um modelo que dissesse "Baixo" todo dia acertaria 85,81% e nunca avisaria um incêndio. Por isso as metas olham para os dias de risco Alto e para uma nota que dá o mesmo peso aos três níveis.
+
+Os termos entre parênteses são os nomes técnicos das medidas, usados no notebook.
 
 ## O ponto de partida: o dado que falta
 
@@ -46,7 +51,7 @@ O dicionário completo está em [`dicionario_dados.txt`](dicionario_dados.txt).
 
 ## Etapa 1: diagnóstico e preparação ([`01_eda.ipynb`](01_eda.ipynb))
 
-A consolidação é feita em SQL (DuckDB) por [`src/consolidar_base.py`](src/consolidar_base.py) e mostrada passo a passo no notebook:
+A consolidação é feita em SQL por [`src/consolidar_base.py`](src/consolidar_base.py), com cada consulta comentada linha por linha em português. O notebook mostra cada passo com a consulta, um resumo dos comandos de SQL usados e o resultado num município de exemplo (Altamira, PA). O SQL roda no DuckDB, que lê os CSVs grandes direto do disco, sem precisar de um banco de dados instalado. Os passos são:
 
 1. Conta os focos de satélites de órbita polar por município e dia, sem duplicados. Os geoestacionários contam o mesmo fogo várias vezes ao dia.
 2. Monta a grade município × dia, com zero no dia sem foco.
