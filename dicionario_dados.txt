@@ -1,0 +1,107 @@
+DICIONÁRIO DE DADOS — Risco de incêndio por município e dia
+============================================================
+
+Base processada: dados/processado/grade_municipio_dia.parquet
+Gerada por: src/consolidar_base.py (passo a passo em 01_eda.ipynb)
+Tamanho: 2 109 514 linhas (5 566 municípios × 379 dias, de 31/01/2024 a
+12/02/2025) e 20 colunas.
+
+Uma linha = um município num dia. O dia sem nenhum foco de queimada também
+é uma linha, com zero focos: a base original só registra onde houve fogo
+(viés de sobrevivência), e esses zeros são o que ensina o modelo a
+reconhecer o risco baixo.
+
+Origens (Base dos Dados, fornecidas pela TripleTen, em dados/brutos/):
+- queimadas_2024_2025.csv  focos de queimada do INPE (Programa Queimadas)
+- MapBiomas.csv            área de cada classe de uso do solo por município e ano
+- BDMEP-2025.csv           medições horárias das estações do INMET (só 2025)
+- BDMEP-estacao.csv        cadastro das estações do INMET
+
+
+IDENTIFICAÇÃO
+-------------
+id_municipio       numérica (int)    Código IBGE do município, 7 dígitos.
+sigla_uf           texto             Sigla do estado (vem do MapBiomas).
+dia                data              Dia da observação.
+
+
+ALVO
+----
+nivel_risco        texto             Nível de risco de incêndio no dia:
+                                     Baixo = nenhum foco (85,81%)
+                                     Médio = 1 a 3 focos (7,89%)
+                                     Alto  = 4 ou mais focos (6,30%)
+focos              numérica (int)    Focos detectados no dia por satélites de
+                                     órbita polar, sem duplicados. É a BASE DO
+                                     ALVO: NÃO pode ser usada como feature.
+
+Por que só satélites polares: os geoestacionários (GOES-16 e MSG-03)
+fotografam a mesma região a cada poucos minutos e contam o mesmo incêndio
+várias vezes ao dia.
+
+
+HISTÓRICO (só o passado; o próprio dia nunca entra)
+---------------------------------------------------
+focos_ontem        numérica (int)    Focos no município no dia anterior.
+focos_7d           numérica (float)  Soma dos focos nos 7 dias anteriores.
+focos_30d          numérica (float)  Soma dos focos nos 30 dias anteriores.
+dias_com_foco_30d  numérica (float)  Quantos dos 30 dias anteriores tiveram
+                                     pelo menos 1 foco.
+
+Os primeiros 30 dias da série (01/01 a 30/01/2024) foram retirados porque não
+têm 30 dias de passado para calcular o histórico.
+
+
+CALENDÁRIO
+----------
+mes                numérica (int)    Mês (1 a 12).
+dia_do_ano         numérica (int)    Dia do ano (1 a 366).
+
+
+USO DO SOLO (MapBiomas, ano de 2021, o mais recente da base)
+------------------------------------------------------------
+area_km2                   numérica (float)  Área total do município, em km².
+pct_floresta               numérica (float)  Proporção (0 a 1) de cada grupo
+pct_natural_nao_florestal                    de uso do solo na área do
+pct_pastagem                                 município.
+pct_agricultura
+pct_mosaico
+pct_nao_vegetada
+pct_agua
+perda_nativa_5a            numérica (float)  Perda de vegetação nativa
+                                             (floresta + natural não florestal)
+                                             entre 2016 e 2021, em proporção
+                                             da área. Negativo = ganho.
+
+Grupos montados com a legenda oficial do MapBiomas, Coleção 8 (o dicionário
+fornecido pela TripleTen fala em 7 classes, mas o arquivo usa os códigos da
+legenda oficial):
+
+  floresta               3 formação florestal, 4 formação savânica,
+                         5 mangue, 6 floresta alagável, 49 restinga arbórea
+  natural_nao_florestal  11 campo alagado e área pantanosa, 12 formação
+                         campestre, 13 outras formações não florestais,
+                         29 afloramento rochoso, 32 apicum, 50 restinga herbácea
+  pastagem               15 pastagem
+  agricultura            9 silvicultura, 20 cana, 35 dendê, 39 soja, 40 arroz,
+                         41 outras lavouras temporárias, 46 café, 47 citrus,
+                         48 outras lavouras perenes, 62 algodão
+  mosaico                21 mosaico de usos
+  nao_vegetada           23 praia, duna e areal, 24 área urbanizada,
+                         25 outras áreas não vegetadas, 30 mineração
+  agua                   31 aquicultura, 33 rio, lago e oceano
+  (fora dos grupos)      0 sem classe na legenda
+
+
+COLUNAS DAS BASES BRUTAS QUE NÃO ENTRAM COMO FEATURE
+----------------------------------------------------
+risco_fogo, dias_sem_chuva, precipitacao (queimadas)
+    Só existem nas linhas em que houve foco. Usar essas colunas seria
+    contar ao modelo que houve fogo.
+bioma (queimadas)
+    A única fonte de bioma por município é a própria base de queimadas: um
+    município sem nenhum foco ficaria sem bioma, o que entregaria a resposta.
+    Usado só nos gráficos.
+Medições do BDMEP
+    Cobrem só jan a jun de 2025 e coexistem com as queimadas por 43 dias.
+    Usadas no teste de hipótese da umidade (01_eda.ipynb, seção 7.2).
