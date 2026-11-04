@@ -21,7 +21,7 @@ Brigadas e defesa civil precisam decidir, todo dia, onde deixar equipes de pront
 |---|---|---|
 | Técnico | F1 macro acima da regra de referência, no conjunto de teste | F1 macro 0,5670 |
 | Técnico | Recall da classe Alto acima da regra de referência | recall Alto 0,5569 |
-| Negócio | Antecipar mais dias de risco Alto com menos equipes de prontidão desperdiçadas | precisão Alto 0,5566 |
+| Negócio | Custo total de prontidão menor que o da regra de referência. O custo soma as equipes posicionadas em dias que não pegam fogo e os dias Alto sem equipe, e vira reais na Etapa 2 | precisão Alto 0,5566 e recall Alto 0,5569 |
 
 O F1 macro dá o mesmo peso às três classes. Assim, o modelo não pode "ganhar" só acertando os dias Baixo.
 
@@ -61,6 +61,7 @@ O resultado é [`dados/processado/grade_municipio_dia.parquet`](dados/processado
 **Sobre os dados**
 
 - **As bases quase não se encontram no tempo.** Queimadas e clima coexistem por só 43 dias (jan e fev de 2025), e o uso do solo termina em 2021. O clima ficou fora das features e foi usado num teste de hipótese.
+- **O BDMEP vem em dobro.** Quase toda medição aparece duas vezes, idêntica (4 891 176 linhas para 2 452 104 combinações de estação, dia e hora). A análise usa só as linhas distintas.
 - **O dicionário do MapBiomas fornecido não bate com os dados.** O arquivo usa os 28 códigos da legenda oficial da Coleção 8, que foram agrupados em 7 grupos de uso do solo.
 - **Algumas colunas não entram como feature,** porque só existem (ou só são conhecidas) quando já há fogo: `risco_fogo`, `dias_sem_chuva`, `precipitacao` e o bioma.
 
@@ -106,3 +107,4 @@ jupyter nbconvert --to notebook --execute --inplace 01_eda.ipynb
 - O uso do solo é de 2021, três anos antes das queimadas.
 - O clima do BDMEP fornecido não cobre 2024. Completar a série com os dados históricos do INMET é a principal melhoria para uma próxima versão.
 - Três municípios com focos (1 130 focos) não existem na base do MapBiomas e ficaram fora da grade.
+- As datas dos focos estão no horário de Greenwich (GMT), como vêm do INPE. Um foco detectado depois das 21h no horário de Brasília conta para o dia seguinte.

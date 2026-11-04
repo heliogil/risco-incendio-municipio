@@ -104,4 +104,9 @@ bioma (queimadas)
     Usado só nos gráficos.
 Medições do BDMEP
     Cobrem só jan a jun de 2025 e coexistem com as queimadas por 43 dias.
-    Usadas no teste de hipótese da umidade (01_eda.ipynb, seção 7.2).
+    Usadas no teste de hipótese da umidade (01_eda.ipynb, seção 7.2). O arquivo
+    traz quase toda medição duas vezes, idêntica; a análise usa só as linhas
+    distintas.
+
+Observação sobre datas: data_hora das queimadas está no horário de Greenwich
+(GMT), como fornecido pelo INPE. O dia da grade segue esse horário.
