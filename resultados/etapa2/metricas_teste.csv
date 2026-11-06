@@ -1,0 +1,5 @@
+,acuracia,f1_macro,precisao_alto,recall_alto,f1_alto,f1_medio,auc_roc
+Persistência,0.8423,0.549,0.4921,0.4982,0.4951,0.2295,
+Regressão logística,0.8174,0.5649,0.587,0.4988,0.5393,0.2519,0.855
+Floresta aleatória,0.7962,0.5644,0.5729,0.5273,0.5492,0.2543,0.8559
+LightGBM,0.8196,0.5603,0.5323,0.4778,0.5036,0.2702,0.8526
