@@ -207,7 +207,7 @@ O `consolidar_base.py`, o `01_eda.ipynb` e o `criar_bioma_municipio.py` precisam
 ├── dicionario_dados.txt
 ├── docs/material_de_estudo.pdf  conceitos do projeto, em linguagem simples
 ├── requirements.txt
-└── Relatorios/                 relatórios de aprovação da TripleTen
+└── Relatorios/                 relatórios de avaliação da TripleTen
 ```
 
 ## Limitações conhecidas

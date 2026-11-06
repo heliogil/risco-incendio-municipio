@@ -1,1 +1,1 @@
-Esta pasta guarda os relatórios de avaliação gerados pela TripleTen em cada entrega aprovada.
+Esta pasta guarda os relatórios de avaliação da TripleTen, conforme forem emitidos.
