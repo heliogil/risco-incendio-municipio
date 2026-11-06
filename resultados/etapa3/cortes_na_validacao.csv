@@ -1,0 +1,3 @@
+,f1_macro,precisao_alto,recall_alto,f1_alto
+corte único,0.5874,0.629,0.646,0.6374
+corte por faixa,0.5821,0.5997,0.6561,0.6266

@@ -1,0 +1,4 @@
+estacao,municípios,dias Alto,recall modelo,recall persistência,precisão modelo,precisão persistência,F1 Alto modelo,F1 Alto persistência
+50 a 150 km,1926,16024,0.565,0.5309,0.5781,0.524,0.5715,0.5274
+até 50 km,3507,12348,0.4439,0.4421,0.5475,0.438,0.4903,0.44
+mais de 150 km,128,2211,0.5893,0.5744,0.5859,0.5612,0.5876,0.5677
