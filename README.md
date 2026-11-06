@@ -205,6 +205,7 @@ O `consolidar_base.py`, o `01_eda.ipynb` e o `criar_bioma_municipio.py` precisam
 │   ├── externos/               coordenadas das sedes dos municípios (fonte no LEIA-ME)
 │   └── processado/             grade município × dia, bioma por município e linhas retiradas por falta de clima
 ├── dicionario_dados.txt
+├── docs/material_de_estudo.pdf  conceitos do projeto, em linguagem simples
 ├── requirements.txt
 └── Relatorios/                 relatórios de aprovação da TripleTen
 ```
