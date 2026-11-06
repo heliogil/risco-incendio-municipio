@@ -15,7 +15,7 @@ A resposta final do projeto está em [Conclusão do projeto](#conclusão-do-proj
 Brigadas e defesa civil precisam decidir, todo dia, onde deixar equipes de prontidão. O modelo deste projeto prevê o **nível de risco de incêndio (Baixo, Médio ou Alto) para cada município e dia**, usando só o que se sabe até a véspera.
 
 - **Quem usa:** os gestores de brigadas e de defesa civil, que decidem onde posicionar equipes, e o time técnico, que mantém o modelo.
-- **Variável alvo** (o que o modelo prevê): `nivel_risco`, com três níveis, definido pelo número de focos de queimada detectados no município no dia. Cada linha da base é um **município-dia**: um município num dia.
+- **Variável alvo** (o que o modelo prevê): `nivel_risco`, com três níveis, definido pelo número de focos de queimada (pontos de calor detectados por satélite) no município no dia. Cada linha da base é um **município-dia**: um município num dia.
 
 | Nível | Regra | % dos município-dias |
 |---|---|---|
@@ -25,18 +25,18 @@ Brigadas e defesa civil precisam decidir, todo dia, onde deixar equipes de pront
 
 ## Como vamos medir o sucesso (KPIs)
 
-A régua é uma **referência estatística mínima**, chamada persistência: prever que **o risco de hoje é o mesmo de ontem**. Ela não descreve como uma brigada trabalha. Na prática, as equipes costumam usar a previsão diária de risco de fogo do INPE, a previsão do tempo e o conhecimento do território. A persistência serve como piso: um modelo que não supere nem ela não tem valor. O modelo é comparado com ela em dias que ele não viu durante o treino.
+A régua é uma **referência estatística mínima**, chamada persistência: prever que **o risco de hoje é o mesmo de ontem**. Ela não descreve como uma brigada trabalha. Na prática, as equipes costumam usar a previsão diária de risco de fogo do INPE (Instituto Nacional de Pesquisas Espaciais), a previsão do tempo e o conhecimento do território. A persistência serve como piso: um modelo que não supere nem ela não tem valor. O modelo é comparado com ela em dias que ele não viu durante o treino.
 
 A régua ideal seria a própria previsão de risco do INPE. Mas, na base fornecida, o risco do INPE só aparece nos dias em que já houve fogo (o viés de sobrevivência descrito abaixo), então essa comparação não é possível aqui.
 
 | O que queremos saber | Persistência (referência mínima) | Meta do modelo |
 |---|---|---|
-| **Avisos a tempo:** dos dias de risco Alto, quantos são avisados com antecedência? *(recall do Alto)* | 56 de cada 100 | **pelo menos 60 de cada 100** |
+| **Dias Alto avisados:** dos dias de risco Alto, quantos são avisados com antecedência? *(recall do Alto)* | 56 de cada 100 | **pelo menos 60 de cada 100** |
 | **Avisos certos:** dos avisos de risco Alto, quantos se confirmam? *(precisão do Alto)* | 56 de cada 100 | **pelo menos 55 de cada 100** |
 | **Acerto geral:** nota de 0 a 1 que pesa igualmente os acertos de Baixo, Médio e Alto *(F1 macro)* | 0,57 | acompanhada; **não cair abaixo de 0,55** |
 | **Custo:** gasto com equipes nos dias avisados + prejuízo dos dias de risco Alto sem equipe | calculado na Etapa 2 | menor que o da persistência, em reais |
 
-As metas são números fixos, decididos antes da modelagem da Etapa 2. Um teste rápido, fora da entrega, serviu só para não prometer um número impossível, e depois disso elas não mudaram. As principais são sobre o risco **Alto**, que é o que pede equipe de prontidão.
+Um **dia Alto** é um município-dia de nível Alto, e um **aviso** é um município-dia que o modelo chamou de Alto. As metas são números fixos, decididos antes da modelagem da Etapa 2. Um teste rápido, fora da entrega, serviu só para não prometer um número impossível, e depois disso elas não mudaram. As principais são sobre o risco **Alto**, que é o que pede equipe de prontidão.
 
 **Por que não medir só "quantos dias acertou"?** Porque 85,83% dos dias são Baixo. Um modelo que dissesse "Baixo" todo dia acertaria 85,83% e nunca avisaria um incêndio.
 
@@ -62,7 +62,7 @@ Bases da [Base dos Dados](https://basedosdados.org/), fornecidas pela TripleTen:
 Complementos públicos:
 
 - **Clima de 2024 (INMET):** o BDMEP fornecido só cobre 2025 e coexiste com as queimadas por 43 dias. O clima de 2024 veio dos [dados históricos anuais do INMET](https://portal.inmet.gov.br/dadoshistoricos), a mesma fonte do BDMEP: 565 estações automáticas, 4 962 960 medições de hora em hora.
-- **Coordenadas dos municípios:** a sede de cada município, do repositório [kelvins/municipios-brasileiros](https://github.com/kelvins/municipios-brasileiros) (licença MIT), guardado em [`dados/externos/`](dados/externos/). Servem para ligar cada município à estação meteorológica mais próxima.
+- **Coordenadas dos municípios:** a sede de cada município, do repositório [kelvins/municipios-brasileiros](https://github.com/kelvins/municipios-brasileiros) (licença aberta MIT), guardado em [`dados/externos/`](dados/externos/). Servem para ligar cada município à estação meteorológica mais próxima.
 
 Os arquivos brutos (cerca de 1,9 GB) não estão no repositório, porque passam do limite de tamanho do GitHub. Para rodar:
 
@@ -75,9 +75,9 @@ O dicionário completo está em [`dicionario_dados.txt`](dicionario_dados.txt).
 
 ## Etapa 1: diagnóstico e preparação ([`01_eda.ipynb`](01_eda.ipynb))
 
-A consolidação é feita em SQL por [`src/consolidar_base.py`](src/consolidar_base.py), com cada consulta comentada linha por linha em português. O notebook mostra cada passo com a consulta, um resumo dos comandos de SQL usados e o resultado num município de exemplo (Altamira, PA). O SQL roda no DuckDB, que lê os CSVs grandes direto do disco, sem precisar de um banco de dados instalado. Os 12 passos são:
+A consolidação é feita em SQL (linguagem usada para consultar tabelas) por [`src/consolidar_base.py`](src/consolidar_base.py), com cada consulta comentada linha por linha em português. O notebook mostra cada passo com a consulta, um resumo dos comandos de SQL usados e o resultado num município de exemplo (Altamira, PA). O SQL roda no DuckDB, que lê os CSVs grandes direto do disco, sem precisar de um banco de dados instalado. Os 12 passos são:
 
-1. **Contar os focos** de satélites de órbita polar por município e dia, sem duplicados. Os geoestacionários contam o mesmo fogo várias vezes ao dia.
+1. **Contar os focos** de satélites de órbita polar, que passam poucas vezes por dia, por município e dia, sem duplicados. Os geoestacionários fotografam a mesma região a cada poucos minutos e contam o mesmo fogo várias vezes.
 2. **Montar a grade** com todos os municípios em todos os dias, com zero no dia sem foco.
 3. **Criar o histórico** de focos (ontem, últimos 7 e 30 dias), sempre sem o próprio dia.
 4. **Juntar o clima de hora em hora** do INMET 2024 e do BDMEP 2025, tratando o `-9999` como vazio e tirando as linhas em dobro do BDMEP.
@@ -106,7 +106,7 @@ O resultado é [`dados/processado/grade_municipio_dia.parquet`](dados/processado
 
 - **O fogo de ontem é o melhor aviso.** Com foco ontem, a chance de foco hoje é 53,16%; sem foco ontem, 7,73%. O teste qui-quadrado, que compara a contagem de dias com o que se esperaria se o fogo de ontem não tivesse relação com o de hoje, deu p < 0,001 (a chance de uma diferença desse tamanho ser sorte é menor que 1 em 1 000).
 - **O ar seco acompanha o fogo.** A umidade relativa mínima média da véspera foi de 35,82% antes dos dias com foco, contra 47,72% antes dos dias sem foco (teste t de Welch, que compara médias entre dois grupos, p < 0,001). A diferença se mantém dentro do mesmo município: em 99,0% dos 4 557 municípios com dias suficientes, a véspera do fogo é mais seca.
-- **Há estação do fogo e geografia do fogo.** Em setembro, 15,38% dos município-dias são Alto. Os municípios mais florestados e os que mais perderam vegetação nativa têm mais dias de risco Alto.
+- **Há época do fogo e geografia do fogo.** Em setembro, 15,38% dos município-dias são Alto. Os municípios mais florestados e os que mais perderam vegetação nativa têm mais dias de risco Alto.
 
 ## Etapa 2: modelagem e inteligência de negócio ([`02_modelagem.ipynb`](02_modelagem.ipynb))
 
@@ -136,7 +136,7 @@ Os resultados em tabela estão em [`resultados/etapa2/`](resultados/etapa2/).
 - **Otimização com o Optuna** (ferramenta que testa combinações de ajustes do modelo): 30 tentativas subiram o acerto geral do LightGBM na validação de 0,5762 para 0,5874, acima dos 0,5794 da regressão logística. Por isso, o LightGBM otimizado é o modelo final.
 - **Um corte do Alto por tamanho de município:** o modelo passa a superar a persistência nas 3 faixas maiores e fica quase igual na menor, mas ainda perde na faixa 2. Na validação, o corte único tinha acerto geral maior; o corte por faixa foi uma escolha declarada, para não abandonar os municípios pequenos.
 - **As 3 colunas que mais pesam, pelo SHAP** (método que mostra quanto cada coluna pesou em cada previsão): focos nos últimos 30 dias (23,7%), umidade mínima de ontem (9,0%) e chuva nos últimos 7 dias (8,9%).
-- **Viés:** o modelo avisa 73 de cada 100 dias Alto no Norte, mas só 6 no Sudeste, no período de teste. A causa provável é a estação: em outubro, o Sudeste sobe para 49. O Sul fica baixo nos dois períodos. O notebook traz o que fazer com isso.
+- **Viés:** o modelo avisa 73 de cada 100 dias Alto no Norte, mas só 6 no Sudeste, no período de teste. A causa provável é a época do ano: em outubro, o Sudeste sobe para 49. O Sul fica baixo nos dois períodos. O notebook traz o que fazer com isso.
 - **Boletim em texto com regra fixa:** frase padrão com o nível previsto e os 3 fatores do SHAP, sem modelo de linguagem (LLM). Assim, nada é inventado, não há chave de serviço pago num repositório público e o resultado é reproduzível.
 - **Modelo final guardado:** `resultados/etapa3/modelo_final.txt`, com as regras de decisão em `cortes_finais.json`.
 
@@ -153,7 +153,7 @@ Os resultados em tabela estão em [`resultados/etapa2/`](resultados/etapa2/).
 | Pelo menos 60 de cada 100 dias Alto avisados | 49,8 | 51,8 | **não** |
 | Custo menor que o da persistência | R$ 434,8 milhões | R$ 415,8 milhões | **sim** |
 
-O resultado depende da estação. Em novembro, mês do teste com mais fogo, o modelo atinge as duas metas do Alto (60,3 dias avisados e 62,2 avisos certos, de cada 100). Em janeiro e fevereiro, com poucos dias Alto, ele fica bem abaixo. A economia é uma estimativa, que depende da premissa dos 5 hectares; a comprovação viria do teste A/B planejado.
+O resultado depende da época do ano. Em novembro, mês do teste com mais fogo, o modelo atinge as duas metas do Alto (60,3 dias avisados e 62,2 avisos certos, de cada 100). Em janeiro e fevereiro, com poucos dias Alto, ele fica bem abaixo. A economia é uma estimativa, que depende da premissa dos 5 hectares; a comprovação viria do teste A/B planejado.
 
 ## Onde está cada entrega
 

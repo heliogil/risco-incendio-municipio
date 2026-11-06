@@ -37,7 +37,7 @@ COLUNAS_INMET = ['data', 'hora', 'chuva', 'pressao', 'pressao_max', 'pressao_min
 # fogo; a contagem usa só os de órbita polar.
 GEOESTACIONARIOS = ('GOES-16', 'MSG-03')
 
-# Cortes do alvo, em focos de satélites polares no município e no dia.
+# Limites do alvo, em focos de satélites polares no município e no dia.
 CORTE_MEDIO = 1
 CORTE_ALTO = 4
 
@@ -232,6 +232,7 @@ WITH distancias AS (
 SELECT *
 FROM distancias
 WHERE distancia_km <= {DISTANCIA_MAXIMA_KM}
+-- ROW_NUMBER numera as estações da mais próxima à mais distante, e QUALIFY fica só com as primeiras.
 QUALIFY ROW_NUMBER() OVER (PARTITION BY id_municipio ORDER BY distancia_km, id_estacao) <= {ESTACOES_POR_MUNICIPIO}
 """)
 
@@ -280,7 +281,7 @@ WINDOW janela AS (PARTITION BY id_municipio ORDER BY dia)
 
 
 def criar_calendario(con):
-    """Passo 8: o mês e o dia do ano, porque o fogo tem estação."""
+    """Passo 8: o mês e o dia do ano, porque o fogo muda com a época do ano."""
     return _rodar(con, """
 CREATE OR REPLACE TABLE grade AS
 SELECT
@@ -362,6 +363,7 @@ SELECT
 FROM (SELECT *, umidade_min_ontem IS NULL AND temp_max_ontem IS NULL AND chuva_ontem IS NULL
                 AND vento_ontem IS NULL AS sem_clima FROM grade)
 GROUP BY id_municipio, sigla_uf
+-- HAVING filtra depois de agrupar: fica só o município que perdeu alguma linha.
 HAVING COUNT(*) FILTER (WHERE sem_clima) > 0
 ORDER BY id_municipio;
 

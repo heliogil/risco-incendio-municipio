@@ -23,7 +23,7 @@ Complementos públicos:
                            arquivo do ano 2024). Completa o clima que o BDMEP
                            fornecido não cobre.
 - dados/externos/municipios.csv  coordenadas da sede de cada município
-                           (github.com/kelvins/municipios-brasileiros, licença MIT).
+                           (github.com/kelvins/municipios-brasileiros, licença aberta MIT).
 
 
 IDENTIFICAÇÃO
