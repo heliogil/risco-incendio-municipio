@@ -40,7 +40,7 @@ As metas são números fixos, decididos antes da modelagem da Etapa 2. Um teste 
 
 **Por que não medir só "quantos dias acertou"?** Porque 85,83% dos dias são Baixo. Um modelo que dissesse "Baixo" todo dia acertaria 85,83% e nunca avisaria um incêndio.
 
-**Por que o acerto geral é só acompanhado?** Ele inclui o nível Médio (1 a 3 focos), e o fogo isolado é o mais difícil de prever: a própria persistência acerta pouco ali (nota 0,22). Exigir que o modelo supere a persistência também no Médio poderia empurrar a escolha para um modelo pior no que importa, os dias Alto.
+**Por que o acerto geral é só acompanhado?** Ele inclui o nível Médio (1 a 3 focos), e o fogo isolado é o mais difícil de prever: a própria persistência acerta pouco ali (nota 0,22). Exigir que o modelo supere a persistência também no Médio poderia empurrar a escolha para um modelo pior no que importa, os dias Alto. Na Etapa 2, ele serve de critério para escolher entre modelos, porque o modelo precisa separar os três níveis, mas as metas principais continuam sendo as do Alto.
 
 Os termos entre parênteses são os nomes técnicos das medidas, usados no notebook.
 
@@ -100,7 +100,7 @@ O resultado é [`dados/processado/grade_municipio_dia.parquet`](dados/processado
 - **O BDMEP vem em dobro.** Quase toda medição aparece duas vezes, idêntica (4 891 176 linhas para 2 452 104 combinações de estação, dia e hora). A análise usa só as linhas distintas.
 - **O dicionário do MapBiomas fornecido não bate com os dados.** O arquivo usa os 28 códigos da legenda oficial da Coleção 7 (que cobre 1985 a 2021), agrupados em 7 grupos de uso do solo.
 - **Clima com vazios.** Falha de sensor é comum, e a rede de estações é rala na Amazônia. Por isso, cada medida vem da estação mais próxima que mediu naquele dia. Metade dos municípios tem estação a até 33,8 km, e 1,55% dos município-dias usam clima de mais de 150 km. O limite de 400 km foi escolhido pela perda: com 150 km, as linhas sem clima levariam 14% dos focos do país; com 400 km, 0,11%. Os poucos vazios restantes (0,13% ou menos em cada coluna) são preenchidos dentro do treino, na Etapa 2.
-- **Algumas colunas não entram como feature** (as colunas que o modelo usa para prever), porque só existem (ou só são conhecidas) quando já há fogo: `risco_fogo`, `dias_sem_chuva`, `precipitacao` e o bioma.
+- **Algumas colunas não entram como feature** (as colunas que o modelo usa para prever), porque só existem (ou só são conhecidas) quando já há fogo: `risco_fogo`, `dias_sem_chuva`, `precipitacao` e o bioma (grande tipo de vegetação).
 
 **Sobre o risco**
 
@@ -112,7 +112,7 @@ O resultado é [`dados/processado/grade_municipio_dia.parquet`](dados/processado
 
 **Três modelos:** regressão logística (dá um peso a cada coluna e soma), floresta aleatória (centenas de árvores de decisão que votam) e LightGBM (árvores em sequência, cada uma corrigindo os erros da anterior). A preparação comum (colunas, períodos, régua e métricas) fica em [`src/preparar_modelagem.py`](src/preparar_modelagem.py).
 
-**Divisão por tempo:** o modelo aprende até setembro de 2024 (treino), as notas de corte são escolhidas em outubro (validação) e a nota final sai de novembro de 2024 a fevereiro de 2025 (teste). O teste cai na época de chuva, com menos dias Alto, e por isso a própria persistência vai pior ali do que na base inteira.
+**Divisão por tempo:** o modelo aprende até setembro de 2024 (treino), as notas de corte (a partir de que probabilidade o dia vira aviso) são escolhidas em outubro (validação) e a nota final sai de novembro de 2024 a fevereiro de 2025 (teste). O teste cai na época de chuva, com menos dias Alto, e por isso a própria persistência vai pior ali do que na base inteira.
 
 **Resultado no teste:**
 
@@ -123,10 +123,10 @@ O resultado é [`dados/processado/grade_municipio_dia.parquet`](dados/processado
 | Acerto geral (F1 macro) | 0,5490 | 0,5649 | 0,55: **atingida** |
 | Custo no período de teste | R$ 434,8 milhões | R$ 429,2 milhões | menor: **atingida** |
 
-- **Os três modelos superam a persistência** no acerto geral e no F1 do Alto. A regressão logística foi escolhida antes do teste, pelo maior acerto geral na validação. Olhando só o Alto na validação, a floresta fica logo à frente, e o LightGBM sem ajustes fica atrás.
+- **Os três modelos superam a persistência** no acerto geral e no F1 do Alto (nota que junta avisos certos e dias avisados). A regressão logística foi escolhida antes do teste, pelo maior acerto geral na validação. Olhando só o Alto na validação, a floresta fica logo à frente, e o LightGBM sem ajustes fica atrás.
 - **O resultado se sustenta em parte:** vale em 1 112 municípios que o modelo nunca viu no treino e em 3 de 5 meses, os de mais fogo. Em janeiro e fevereiro, fica abaixo da persistência.
 - **Limitação encontrada:** o ganho está nos municípios maiores, que concentram cerca de 80% dos dias Alto. Nos menores, a persistência acerta mais. A Etapa 3 trata esse ponto.
-- **Em reais:** custo de equipe a partir dos salários do Prevfogo/Ibama e prejuízo por hectare a partir da estimativa da CNA. A economia contra a persistência é positiva nos 15 cenários testados. Escolhendo o corte pelo menor custo, em vez do maior acerto geral, o modelo avisa 91 de cada 100 dias Alto, o que mostra que a meta de recall é uma escolha de custo.
+- **Em reais:** custo de equipe a partir dos salários do Prevfogo, o centro de combate a incêndios florestais do Ibama, e prejuízo por hectare a partir da estimativa da Confederação da Agricultura e Pecuária do Brasil (CNA). A economia contra a persistência é positiva nos 15 cenários testados. Escolhendo o corte pelo menor custo, em vez do maior acerto geral, o modelo avisa 91 de cada 100 dias Alto, o que mostra que a meta de recall é uma escolha de custo.
 - **Plano de teste A/B:** sorteio de grupos de municípios vizinhos, em pares parecidos, durante uma estação seca, medindo a área queimada por foco.
 
 Os resultados em tabela estão em [`resultados/etapa2/`](resultados/etapa2/).
