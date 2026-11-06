@@ -1093,7 +1093,7 @@ id_municipio,bioma
 2401602,Caatinga
 2401651,Caatinga
 2401701,Caatinga
-2401800,Mata Atlântica
+2401800,Caatinga
 2401859,Caatinga
 2401909,Caatinga
 2402006,Caatinga
@@ -1487,7 +1487,7 @@ id_municipio,bioma
 2602100,Caatinga
 2602209,Caatinga
 2602308,Mata Atlântica
-2602407,Mata Atlântica
+2602407,Caatinga
 2602506,Caatinga
 2602605,Caatinga
 2602704,Mata Atlântica
@@ -4711,7 +4711,7 @@ id_municipio,bioma
 4306205,Mata Atlântica
 4306304,Mata Atlântica
 4306320,Mata Atlântica
-4306353,Pampa
+4306353,Mata Atlântica
 4306379,Pampa
 4306403,Mata Atlântica
 4306429,Mata Atlântica
@@ -4893,7 +4893,7 @@ id_municipio,bioma
 4314753,Mata Atlântica
 4314779,Mata Atlântica
 4314787,Mata Atlântica
-4314803,Pampa
+4314803,Mata Atlântica
 4314902,Pampa
 4315008,Mata Atlântica
 4315057,Mata Atlântica
@@ -4966,7 +4966,7 @@ id_municipio,bioma
 4319000,Mata Atlântica
 4319125,Pampa
 4319158,Pampa
-4319208,Pampa
+4319208,Mata Atlântica
 4319307,Mata Atlântica
 4319356,Mata Atlântica
 4319406,Pampa
@@ -5310,7 +5310,7 @@ id_municipio,bioma
 5203939,Cerrado
 5203962,Cerrado
 5204003,Cerrado
-5204102,Mata Atlântica
+5204102,Cerrado
 5204201,Cerrado
 5204250,Mata Atlântica
 5204300,Cerrado

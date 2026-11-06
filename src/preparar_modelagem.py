@@ -34,6 +34,9 @@ CUSTO_EQUIPE_DIA = round((2838.00 + 4 * 2128.50) / 22 * 2)
 PREJUIZO_HECTARE = 5250
 HECTARES_BASE = 5
 
+# Notas de corte testadas na validação.
+GRADE_CORTES = np.round(np.arange(0.10, 0.91, 0.05), 2)
+
 REGIOES = {
     'Norte': ['AC', 'AM', 'AP', 'PA', 'RO', 'RR', 'TO'],
     'Nordeste': ['AL', 'BA', 'CE', 'MA', 'PB', 'PE', 'PI', 'RN', 'SE'],
@@ -44,8 +47,8 @@ REGIOES = {
 REGIAO_DA_UF = {uf: regiao for regiao, ufs in REGIOES.items() for uf in ufs}
 
 
-def carregar_base(caminho=ARQUIVO_PROCESSADO):
-    base = pd.read_parquet(caminho)
+def carregar_base():
+    base = pd.read_parquet(ARQUIVO_PROCESSADO)
     base['dia'] = pd.to_datetime(base['dia'])
     base['sigla_uf'] = base['sigla_uf'].astype('category')
     base['regiao'] = base['sigla_uf'].astype(str).map(REGIAO_DA_UF)
@@ -67,6 +70,12 @@ def persistencia(df):
                      index=df.index)
 
 
+def probabilidades(modelo, X):
+    """As probabilidades do modelo, sempre na ordem Baixo, Médio, Alto."""
+    ordem = [list(modelo.classes_).index(n) for n in NIVEIS]
+    return modelo.predict_proba(X)[:, ordem]
+
+
 def decidir(probabilidades, corte_alto, corte_medio):
     """Transforma as probabilidades em nível de risco com duas notas de corte.
 
@@ -77,11 +86,12 @@ def decidir(probabilidades, corte_alto, corte_medio):
     return np.where(p[:, 2] >= corte_alto, 'Alto', np.where(p[:, 1] >= corte_medio, 'Médio', 'Baixo'))
 
 
-def escolher_cortes(y_validacao, probabilidades, grade=np.round(np.arange(0.10, 0.91, 0.05), 2)):
+def escolher_cortes(y_validacao, probabilidades, grade_alto=GRADE_CORTES, grade_medio=GRADE_CORTES):
     """Procura, só na validação, as notas de corte que dão o maior F1 macro."""
+    y_validacao = np.asarray(y_validacao, dtype=object)
     melhor = (None, None, -1)
-    for corte_alto in grade:
-        for corte_medio in grade:
+    for corte_alto in grade_alto:
+        for corte_medio in grade_medio:
             f1 = f1_score(y_validacao, decidir(probabilidades, corte_alto, corte_medio), average='macro')
             if f1 > melhor[2]:
                 melhor = (corte_alto, corte_medio, f1)
@@ -97,6 +107,18 @@ def custo_total(y_real, y_previsto, hectares=HECTARES_BASE, custo_equipe=CUSTO_E
     avisos = (y_previsto == 'Alto').sum()
     alto_sem_aviso = ((y_real == 'Alto') & (y_previsto != 'Alto')).sum()
     return avisos * custo_equipe + alto_sem_aviso * hectares * PREJUIZO_HECTARE, avisos, alto_sem_aviso
+
+
+def sensibilidade_economia(y_real, previsto, previsto_regua):
+    """Economia contra a régua, em R$ milhões, com outros hectares e outros custos de equipe."""
+    hectares, equipes = [1, 2, 5, 10, 20], [500, CUSTO_EQUIPE_DIA, 2000]
+    tabela = pd.DataFrame(index=[f'{h} ha' for h in hectares], columns=[f'equipe R$ {c:,}'.replace(',', '.') for c in equipes])
+    for h in hectares:
+        for c in equipes:
+            ganho = custo_total(y_real, previsto_regua, h, c)[0] - custo_total(y_real, previsto, h, c)[0]
+            tabela.loc[f'{h} ha', f'equipe R$ {c:,}'.replace(',', '.')] = round(ganho / 1e6, 1)
+    tabela.index.name = 'área a mais queimada sem equipe'
+    return tabela
 
 
 def metricas(y_real, y_previsto, probabilidades=None):

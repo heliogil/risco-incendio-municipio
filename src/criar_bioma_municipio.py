@@ -9,17 +9,18 @@ from consolidar_base import ARQUIVO_PROCESSADO, conectar
 ARQUIVO_BIOMA = ARQUIVO_PROCESSADO.parent / 'bioma_municipio.csv'
 
 
-def criar_bioma_municipio(caminho=ARQUIVO_BIOMA):
+def criar_bioma_municipio():
     con = conectar()
     con.execute(f"""
         COPY (
-            SELECT id_municipio,
-                   MODE(bioma) AS bioma           -- o bioma mais frequente nos focos do município
+            SELECT id_municipio, bioma
             FROM queimadas
             WHERE id_municipio IS NOT NULL AND bioma IS NOT NULL
-            GROUP BY id_municipio
+            GROUP BY id_municipio, bioma
+            -- fica o bioma mais frequente nos focos do município; no empate, o primeiro em ordem alfabética
+            QUALIFY ROW_NUMBER() OVER (PARTITION BY id_municipio ORDER BY COUNT(*) DESC, bioma) = 1
             ORDER BY id_municipio
-        ) TO '{caminho.as_posix()}' (HEADER, DELIMITER ',')
+        ) TO '{ARQUIVO_BIOMA.as_posix()}' (HEADER, DELIMITER ',')
     """)
 
 

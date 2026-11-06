@@ -388,11 +388,11 @@ def preparar(con):
     return con
 
 
-def salvar(con, caminho=ARQUIVO_PROCESSADO):
-    caminho.parent.mkdir(parents=True, exist_ok=True)
-    con.execute(f"COPY grade TO '{caminho.as_posix()}' (FORMAT parquet, COMPRESSION zstd)")
+def salvar(con):
+    ARQUIVO_PROCESSADO.parent.mkdir(parents=True, exist_ok=True)
+    con.execute(f"COPY grade TO '{ARQUIVO_PROCESSADO.as_posix()}' (FORMAT parquet, COMPRESSION zstd)")
     con.execute(f"COPY linhas_sem_clima TO '{ARQUIVO_SEM_CLIMA.as_posix()}' (HEADER, DELIMITER ',')")
-    return caminho
+    return ARQUIVO_PROCESSADO
 
 
 if __name__ == '__main__':
