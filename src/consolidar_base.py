@@ -20,13 +20,13 @@ BRUTOS = RAIZ / 'dados' / 'brutos'
 INMET_2024 = BRUTOS / 'inmet_2024'
 MUNICIPIOS = RAIZ / 'dados' / 'externos' / 'municipios.csv'
 ARQUIVO_PROCESSADO = RAIZ / 'dados' / 'processado' / 'grade_municipio_dia.parquet'
+ARQUIVO_SEM_CLIMA = RAIZ / 'dados' / 'processado' / 'linhas_sem_clima_por_municipio.csv'
 
 # Clima: um valor diário só vale se a estação mediu pelo menos 18 das 24 horas.
 HORAS_MINIMAS = 18
-# Só entram estações com umidade medida em pelo menos 80% dos dias.
-COBERTURA_MINIMA = 0.8
-# Município a mais de 150 km da estação mais próxima fica sem clima.
-DISTANCIA_MAXIMA_KM = 150
+# Cada município usa as estações a até 400 km da sede, no máximo as 10 mais próximas.
+DISTANCIA_MAXIMA_KM = 400
+ESTACOES_POR_MUNICIPIO = 10
 
 # Colunas dos CSVs do INMET 2024, na ordem do arquivo.
 COLUNAS_INMET = ['data', 'hora', 'chuva', 'pressao', 'pressao_max', 'pressao_min', 'radiacao', 'temperatura',
@@ -203,8 +203,8 @@ GROUP BY id_estacao, dia
 """)
 
 
-def ligar_estacao_proxima(con):
-    """Passo 6: liga cada município à estação boa mais próxima da sua sede."""
+def ligar_estacoes_proximas(con):
+    """Passo 6: liga cada município às estações mais próximas da sua sede."""
     con.execute('CREATE OR REPLACE TABLE coordenadas_2024 (id_estacao VARCHAR, latitude DOUBLE, longitude DOUBLE)')
     con.executemany('INSERT INTO coordenadas_2024 VALUES (?, ?, ?)', _coordenadas_inmet_2024())
     return _rodar(con, f"""
@@ -215,16 +215,9 @@ UNION
 SELECT id_estacao, latitude, longitude FROM estacoes
 WHERE id_estacao NOT IN (SELECT id_estacao FROM coordenadas_2024);
 
--- Estação "boa": mediu a umidade em pelo menos {COBERTURA_MINIMA:.0%} dos dias.
-CREATE OR REPLACE TABLE estacoes_boas AS
-SELECT id_estacao
-FROM clima_diario
-GROUP BY id_estacao
-HAVING AVG(CASE WHEN umidade_min IS NOT NULL THEN 1 ELSE 0 END) >= {COBERTURA_MINIMA};
-
--- Distância em km entre a sede de cada município e cada estação boa (fórmula de Haversine,
--- que mede a distância sobre a superfície da Terra) e, para cada município, a mais próxima.
-CREATE OR REPLACE TABLE estacao_proxima AS
+-- Distância em km entre a sede de cada município e cada estação (fórmula de Haversine,
+-- que mede a distância sobre a superfície da Terra). Ficam as {ESTACOES_POR_MUNICIPIO} mais próximas, a até {DISTANCIA_MAXIMA_KM} km.
+CREATE OR REPLACE TABLE estacoes_proximas AS
 WITH distancias AS (
     SELECT
         m.codigo_ibge AS id_municipio,
@@ -235,36 +228,46 @@ WITH distancias AS (
               * POWER(SIN(RADIANS(c.longitude - m.longitude) / 2), 2))) AS distancia_km
     FROM municipios m
     CROSS JOIN coordenadas c                  -- cada município com cada estação
-    WHERE c.id_estacao IN (SELECT id_estacao FROM estacoes_boas)
 )
-SELECT
-    id_municipio,
-    ARG_MIN(id_estacao, distancia_km) AS id_estacao,
-                                              -- a estação com a menor distância
-    MIN(distancia_km) AS distancia_estacao_km
+SELECT *
 FROM distancias
-GROUP BY id_municipio
+WHERE distancia_km <= {DISTANCIA_MAXIMA_KM}
+QUALIFY ROW_NUMBER() OVER (PARTITION BY id_municipio ORDER BY distancia_km, id_estacao) <= {ESTACOES_POR_MUNICIPIO}
 """)
 
 
 def criar_clima_vespera(con):
-    """Passo 7: o clima da véspera (e da última semana) na estação do município."""
-    return _rodar(con, f"""
--- Primeiro, traz para cada município e dia o clima medido naquele dia na sua estação.
--- Município a mais de {DISTANCIA_MAXIMA_KM} km da estação fica sem clima (vazio).
+    """Passo 7: o clima da véspera (e da última semana), vindo da estação mais próxima que mediu."""
+    return _rodar(con, """
+-- Para cada município e dia, cada medida vem da estação mais próxima que mediu aquilo naquele dia.
+-- ARG_MIN(valor, distância) devolve o valor da menor distância; FILTER ignora as estações sem medição.
+CREATE OR REPLACE TABLE clima_municipio AS
+SELECT
+    p.id_municipio,
+    c.dia,
+    MIN(p.distancia_km) AS distancia_estacao_km,  -- a distância da estação mais próxima que mediu algo no dia
+    ARG_MIN(c.umidade_min, (p.distancia_km, p.id_estacao)) FILTER (WHERE c.umidade_min IS NOT NULL) AS umidade_min,
+    ARG_MIN(c.temp_max, (p.distancia_km, p.id_estacao)) FILTER (WHERE c.temp_max IS NOT NULL) AS temp_max,
+    ARG_MIN(c.chuva, (p.distancia_km, p.id_estacao)) FILTER (WHERE c.chuva IS NOT NULL) AS chuva,
+    ARG_MIN(c.vento, (p.distancia_km, p.id_estacao)) FILTER (WHERE c.vento IS NOT NULL) AS vento
+FROM estacoes_proximas p
+JOIN clima_diario c ON c.id_estacao = p.id_estacao
+WHERE c.umidade_min IS NOT NULL OR c.temp_max IS NOT NULL OR c.chuva IS NOT NULL OR c.vento IS NOT NULL
+GROUP BY p.id_municipio, c.dia;
+
+-- Traz esse clima para a grade.
 CREATE OR REPLACE TABLE grade AS
-SELECT g.*, p.distancia_estacao_km, c.umidade_min, c.temp_max, c.chuva, c.vento
+SELECT g.*, c.distancia_estacao_km, c.umidade_min, c.temp_max, c.chuva, c.vento
 FROM grade g
-LEFT JOIN estacao_proxima p
-    ON p.id_municipio = g.id_municipio AND p.distancia_estacao_km <= {DISTANCIA_MAXIMA_KM}
-LEFT JOIN clima_diario c
-    ON c.id_estacao = p.id_estacao AND c.dia = g.dia;
+LEFT JOIN clima_municipio c
+    ON c.id_municipio = g.id_municipio AND c.dia = g.dia;
 
 -- Depois, desloca tudo um dia para trás: o modelo só pode ver o clima de ATÉ ONTEM.
 -- O clima do próprio dia sai da tabela no fim.
 CREATE OR REPLACE TABLE grade AS
 SELECT
-    * EXCLUDE (umidade_min, temp_max, chuva, vento),
+    * EXCLUDE (distancia_estacao_km, umidade_min, temp_max, chuva, vento),
+    LAG(distancia_estacao_km, 1) OVER janela AS distancia_estacao_km,
     LAG(umidade_min, 1) OVER janela AS umidade_min_ontem,
     LAG(temp_max, 1) OVER janela AS temp_max_ontem,
     LAG(chuva, 1) OVER janela AS chuva_ontem,
@@ -345,9 +348,36 @@ ORDER BY id_municipio, dia
 """)
 
 
+def remover_sem_clima(con):
+    """Passo 12: tira as linhas sem nenhuma medida de clima na véspera e registra quais saíram."""
+    return _rodar(con, """
+-- Guarda, por município, quantas linhas sairão, para a auditoria.
+CREATE OR REPLACE TABLE linhas_sem_clima AS
+SELECT
+    id_municipio,
+    sigla_uf,
+    COUNT(*) FILTER (WHERE sem_clima) AS linhas_retiradas,
+    COUNT(*) AS linhas_na_grade,
+    SUM(focos) FILTER (WHERE sem_clima) AS focos_retirados
+FROM (SELECT *, umidade_min_ontem IS NULL AND temp_max_ontem IS NULL AND chuva_ontem IS NULL
+                AND vento_ontem IS NULL AS sem_clima FROM grade)
+GROUP BY id_municipio, sigla_uf
+HAVING COUNT(*) FILTER (WHERE sem_clima) > 0
+ORDER BY id_municipio;
+
+-- Fica só o município-dia com pelo menos uma medida de clima na véspera.
+CREATE OR REPLACE TABLE grade AS
+SELECT *
+FROM grade
+WHERE umidade_min_ontem IS NOT NULL OR temp_max_ontem IS NOT NULL
+   OR chuva_ontem IS NOT NULL OR vento_ontem IS NOT NULL
+ORDER BY id_municipio, dia
+""")
+
+
 PASSOS = [contar_focos, montar_grade, criar_historico,
-          ler_clima_horario, agregar_clima_diario, ligar_estacao_proxima, criar_clima_vespera,
-          criar_calendario, criar_uso_do_solo, criar_alvo, remover_sem_historico]
+          ler_clima_horario, agregar_clima_diario, ligar_estacoes_proximas, criar_clima_vespera,
+          criar_calendario, criar_uso_do_solo, criar_alvo, remover_sem_historico, remover_sem_clima]
 
 
 def preparar(con):
@@ -359,6 +389,7 @@ def preparar(con):
 def salvar(con, caminho=ARQUIVO_PROCESSADO):
     caminho.parent.mkdir(parents=True, exist_ok=True)
     con.execute(f"COPY grade TO '{caminho.as_posix()}' (FORMAT parquet, COMPRESSION zstd)")
+    con.execute(f"COPY linhas_sem_clima TO '{ARQUIVO_SEM_CLIMA.as_posix()}' (HEADER, DELIMITER ',')")
     return caminho
 
 

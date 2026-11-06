@@ -3,7 +3,7 @@ DICIONÁRIO DE DADOS — Risco de incêndio por município e dia
 
 Base processada: dados/processado/grade_municipio_dia.parquet
 Gerada por: src/consolidar_base.py (passo a passo em 01_eda.ipynb)
-Tamanho: 2 109 514 linhas (5 566 municípios × 379 dias, de 31/01/2024 a
+Tamanho: 2 106 411 linhas (5 562 municípios, 379 dias, de 31/01/2024 a
 12/02/2025) e 26 colunas.
 
 Uma linha = um município num dia. O dia sem nenhum foco de queimada também
@@ -36,9 +36,9 @@ dia                data              Dia da observação.
 ALVO
 ----
 nivel_risco        texto             Nível de risco de incêndio no dia:
-                                     Baixo = nenhum foco (85,81%)
+                                     Baixo = nenhum foco (85,83%)
                                      Médio = 1 a 3 focos (7,89%)
-                                     Alto  = 4 ou mais focos (6,30%)
+                                     Alto  = 4 ou mais focos (6,29%)
 focos              numérica (int)    Focos detectados no dia por satélites de
                                      órbita polar, sem duplicados. É a BASE DO
                                      ALVO: NÃO pode ser usada como feature.
@@ -60,11 +60,11 @@ Os primeiros 30 dias da série (01/01 a 30/01/2024) foram retirados porque não
 têm 30 dias de passado para calcular o histórico.
 
 
-CLIMA DA VÉSPERA (estação boa mais próxima da sede do município)
+CLIMA DA VÉSPERA (estação mais próxima da sede que mediu no dia)
 ----------------------------------------------------------------
 distancia_estacao_km  numérica (float)  Distância da sede do município até a
-                                        estação usada. Vazio = nenhuma estação
-                                        boa a até 150 km (o clima fica vazio).
+                                        estação mais próxima que mediu algo
+                                        na véspera.
 umidade_min_ontem  numérica (float)  Umidade relativa mais baixa do dia
                                      anterior (%).
 temp_max_ontem     numérica (float)  Temperatura máxima do dia anterior (°C).
@@ -75,12 +75,13 @@ chuva_7d           numérica (float)  Chuva somada nos 7 dias anteriores (mm),
                                      contando só os dias com medição.
 
 Regras do clima:
-- Estação "boa": mediu a umidade em pelo menos 80% dos dias (328 de 565).
+- Cada município usa as 10 estações mais próximas da sede, a até 400 km.
+- Cada medida vem da estação mais próxima que mediu aquilo naquele dia.
 - Um valor diário só vale se a estação mediu pelo menos 18 das 24 horas.
 - O INMET marca "sem medição" com -9999, tratado como vazio.
-- 7,64% dos município-dias ficam sem a umidade da véspera (município a mais
-  de 150 km de estação boa, ou falha da estação naquele dia). Os vazios NÃO
-  foram preenchidos: o preenchimento é feito dentro do treino, na Etapa 2.
+- Linhas sem nenhuma medida de clima na véspera foram retiradas (3 103 linhas,
+  0,15%). Os poucos vazios restantes (0,13% ou menos em cada coluna) NÃO foram
+  preenchidos: o preenchimento é feito dentro do treino, na Etapa 2.
 
 
 CALENDÁRIO
@@ -132,10 +133,24 @@ risco_fogo, dias_sem_chuva, precipitacao (queimadas)
 bioma (queimadas)
     A única fonte de bioma por município é a própria base de queimadas: um
     município sem nenhum foco ficaria sem bioma, o que entregaria a resposta.
-    Usado só nos gráficos.
+    Usado só nos gráficos e no teste de viés.
 Clima do próprio dia
     Só o clima da véspera entra. O BDMEP fornecido traz quase toda medição
     duas vezes, idêntica; a consolidação usa só as linhas distintas.
 
 Observação sobre datas: data_hora das queimadas e as horas do INMET estão no
 horário de Greenwich (UTC/GMT). O dia da grade segue esse horário.
+
+Tabela auxiliar: dados/processado/linhas_sem_clima_por_municipio.csv
+Gerada por: src/consolidar_base.py. Registra o que saiu no passo 12.
+- id_municipio, sigla_uf: o município.
+- linhas_retiradas: dias retirados por falta de clima.
+- linhas_na_grade: dias do município antes da retirada.
+- focos_retirados: focos desses dias.
+
+Tabela auxiliar: dados/processado/bioma_municipio.csv
+Gerada por: src/criar_bioma_municipio.py. Usada só no teste de viés da Etapa 3;
+o bioma não entra no modelo.
+- id_municipio: código IBGE do município.
+- bioma: o bioma mais frequente nos focos do município. Os municípios sem nenhum
+  foco não aparecem na tabela.
