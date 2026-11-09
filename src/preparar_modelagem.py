@@ -3,9 +3,16 @@
 As duas etapas importam este arquivo, para que usem exatamente as mesmas colunas,
 os mesmos períodos e as mesmas métricas.
 """
+import lightgbm as lgb
 import numpy as np
 import pandas as pd
+from sklearn.compose import ColumnTransformer
+from sklearn.ensemble import RandomForestClassifier
+from sklearn.impute import SimpleImputer
+from sklearn.linear_model import LogisticRegression
 from sklearn.metrics import (accuracy_score, f1_score, precision_score, recall_score, roc_auc_score)
+from sklearn.pipeline import Pipeline
+from sklearn.preprocessing import FunctionTransformer, OneHotEncoder, StandardScaler
 
 from consolidar_base import ARQUIVO_PROCESSADO
 
@@ -15,11 +22,13 @@ NIVEIS = ['Baixo', 'Médio', 'Alto']
 FEATURES_NUMERICAS = [
     'focos_ontem', 'focos_7d', 'focos_30d', 'dias_com_foco_30d',
     'umidade_min_ontem', 'temp_max_ontem', 'chuva_ontem', 'chuva_7d', 'vento_ontem', 'distancia_estacao_km',
-    'mes', 'dia_do_ano',
     'area_km2', 'pct_floresta', 'pct_natural_nao_florestal', 'pct_pastagem', 'pct_agricultura',
     'pct_mosaico', 'pct_nao_vegetada', 'pct_agua', 'perda_nativa_5a',
 ]
 FEATURES_CATEGORICAS = ['sigla_uf']
+# Calendário: testado na Etapa 2 e retirado. O treino não tem outubro a dezembro, e sem estas
+# colunas os três modelos foram iguais ou melhores na validação (02_modelagem.ipynb, seção 4).
+FEATURES_CALENDARIO = ['mes', 'dia_do_ano']
 FEATURES = FEATURES_NUMERICAS + FEATURES_CATEGORICAS
 
 # Colunas com cauda longa, que a regressão logística recebe em log(1 + valor).
@@ -68,6 +77,30 @@ def persistencia(df):
     """Referência mínima: o nível de hoje é o que os focos de ontem dariam."""
     return pd.Series(np.select([df['focos_ontem'] >= 4, df['focos_ontem'] >= 1], ['Alto', 'Médio'], 'Baixo'),
                      index=df.index)
+
+
+def montar_modelos(numericas, semente):
+    """Os três modelos da Etapa 2, com o preparo de cada um, para as colunas numéricas dadas."""
+    outras = [c for c in numericas if c not in FEATURES_CAUDA_LONGA]
+    preparo_logistica = ColumnTransformer([
+        ('cauda_longa', Pipeline([('vazios', SimpleImputer(strategy='median', add_indicator=True)),
+                                  ('log', FunctionTransformer(np.log1p, feature_names_out='one-to-one')),
+                                  ('escala', StandardScaler())]), FEATURES_CAUDA_LONGA),
+        ('numericas', Pipeline([('vazios', SimpleImputer(strategy='median', add_indicator=True)),
+                                ('escala', StandardScaler())]), outras),
+        ('estado', OneHotEncoder(handle_unknown='ignore'), FEATURES_CATEGORICAS)])
+    preparo_floresta = ColumnTransformer([
+        ('numericas', SimpleImputer(strategy='median', add_indicator=True), numericas),
+        ('estado', OneHotEncoder(handle_unknown='ignore'), FEATURES_CATEGORICAS)])
+    return {
+        'Regressão logística': Pipeline([('preparo', preparo_logistica),
+                                         ('modelo', LogisticRegression(max_iter=1000, class_weight='balanced'))]),
+        'Floresta aleatória': Pipeline([('preparo', preparo_floresta),
+                                        ('modelo', RandomForestClassifier(n_estimators=150, max_depth=14, min_samples_leaf=50,
+                                                                          class_weight='balanced', n_jobs=-1, random_state=semente))]),
+        'LightGBM': lgb.LGBMClassifier(n_estimators=400, learning_rate=0.05, num_leaves=63, class_weight='balanced',
+                                       random_state=semente, verbose=-1),
+    }
 
 
 def probabilidades(modelo, X):

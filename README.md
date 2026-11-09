@@ -110,50 +110,55 @@ O resultado é [`dados/processado/grade_municipio_dia.parquet`](dados/processado
 
 ## Etapa 2: modelagem e inteligência de negócio ([`02_modelagem.ipynb`](02_modelagem.ipynb))
 
-**Três modelos:** regressão logística (dá um peso a cada coluna e soma), floresta aleatória (centenas de árvores de decisão que votam) e LightGBM (árvores em sequência, cada uma corrigindo os erros da anterior). A preparação comum (colunas, períodos, régua e métricas) fica em [`src/preparar_modelagem.py`](src/preparar_modelagem.py).
+**Três modelos:** regressão logística (dá um peso a cada coluna e soma), floresta aleatória (centenas de árvores de decisão que votam) e LightGBM (árvores em sequência, cada uma corrigindo os erros da anterior). A preparação comum (colunas, períodos, modelos, régua e métricas) fica em [`src/preparar_modelagem.py`](src/preparar_modelagem.py).
 
 **Divisão por tempo:** o modelo aprende até setembro de 2024 (treino), as notas de corte (a partir de que probabilidade o dia vira aviso) são escolhidas em outubro (validação) e a nota final sai de novembro de 2024 a fevereiro de 2025 (teste). O teste cai na época de chuva, com menos dias Alto, e por isso a própria persistência vai pior ali do que na base inteira.
+
+**Calendário fora:** o treino não tem outubro a dezembro, então as colunas de mês e dia do ano foram testadas na validação, com uma regra fixada antes. Sem elas, os três modelos ficaram iguais ou melhores, e elas saíram do projeto.
 
 **Resultado no teste:**
 
 | | Persistência | Regressão logística (escolhida) | Meta |
 |---|---|---|---|
-| Dias Alto avisados (recall do Alto) | 49,8 de cada 100 | 49,9 de cada 100 | 60: **não atingida** |
-| Avisos certos (precisão do Alto) | 49,2 de cada 100 | 58,7 de cada 100 | 55: **atingida** |
-| Acerto geral (F1 macro) | 0,5490 | 0,5649 | 0,55: **atingida** |
-| Custo no período de teste | R$ 434,8 milhões | R$ 429,2 milhões | menor: **atingida** |
+| Dias Alto avisados (recall do Alto) | 49,8 de cada 100 | 51,2 de cada 100 | 60: **não atingida** |
+| Avisos certos (precisão do Alto) | 49,2 de cada 100 | 57,6 de cada 100 | 55: **atingida** |
+| Acerto geral (F1 macro) | 0,5490 | 0,5709 | 0,55: **atingida** |
+| Custo no período de teste | R$ 434,8 milhões | R$ 420,1 milhões | menor: **atingida** |
 
-- **Os três modelos superam a persistência** no acerto geral e no F1 do Alto (nota que junta avisos certos e dias avisados). A regressão logística foi escolhida antes do teste, pelo maior acerto geral na validação. Olhando só o Alto na validação, a floresta fica logo à frente, e o LightGBM sem ajustes fica atrás.
-- **O resultado se sustenta em parte:** vale em 1 112 municípios que o modelo nunca viu no treino e em 3 de 5 meses, os de mais fogo. Em janeiro e fevereiro, fica abaixo da persistência.
-- **Limitação encontrada:** o ganho está nos municípios maiores, que concentram cerca de 80% dos dias Alto. Nos menores, a persistência acerta mais. A Etapa 3 trata esse ponto.
-- **Em reais:** custo de equipe a partir dos salários do Prevfogo, o centro de combate a incêndios florestais do Ibama, e prejuízo por hectare a partir da estimativa da Confederação da Agricultura e Pecuária do Brasil (CNA). A economia contra a persistência é positiva nos 15 cenários testados. Escolhendo o corte pelo menor custo, em vez do maior acerto geral, o modelo avisa 91 de cada 100 dias Alto, o que mostra que a meta de recall é uma escolha de custo.
+- **Os três modelos superam a persistência** no acerto geral, nos avisos certos e nos dias Alto avisados. A regressão logística foi escolhida antes do teste, pelo maior acerto geral na validação (0,5822, quase empatada com o LightGBM, 0,5820).
+- **O resultado se sustenta:** vale em 1 112 municípios que o modelo nunca viu no treino e em 4 de 5 meses. Só em fevereiro fica abaixo da persistência.
+- **Limitação encontrada, na validação:** nos municípios menores, a persistência acerta mais. A Etapa 3 testa um corte por tamanho para isso.
+- **Em reais:** custo de equipe a partir dos salários do Prevfogo, o centro de combate a incêndios florestais do Ibama, e prejuízo por hectare a partir da estimativa da Confederação da Agricultura e Pecuária do Brasil (CNA). A economia contra a persistência é positiva nos 15 cenários testados. Escolhendo o corte pelo menor custo, em vez do maior acerto geral, o modelo avisa 90 de cada 100 dias Alto, o que mostra que a meta de recall é uma escolha de custo.
 - **Plano de teste A/B:** sorteio de grupos de municípios vizinhos, em pares parecidos, durante uma estação seca, medindo a área queimada por foco.
 
 Os resultados em tabela estão em [`resultados/etapa2/`](resultados/etapa2/).
 
 ## Etapa 3: otimização e IA responsável ([`03_otimizacao_ia_responsavel.ipynb`](03_otimizacao_ia_responsavel.ipynb))
 
-- **Otimização com o Optuna** (ferramenta que testa combinações de ajustes do modelo): 30 tentativas subiram o acerto geral do LightGBM na validação de 0,5762 para 0,5874, acima dos 0,5794 da regressão logística. Por isso, o LightGBM otimizado é o modelo final.
-- **Um corte do Alto por tamanho de município:** o modelo passa a superar a persistência nas 3 faixas maiores e fica quase igual na menor, mas ainda perde na faixa 2. Na validação, o corte único tinha acerto geral maior; o corte por faixa foi uma escolha declarada, para não abandonar os municípios pequenos.
-- **As 3 colunas que mais pesam, pelo SHAP** (método que mostra quanto cada coluna pesou em cada previsão): focos nos últimos 30 dias (23,7%), umidade mínima de ontem (9,0%) e chuva nos últimos 7 dias (8,9%).
-- **Viés:** o modelo avisa 73 de cada 100 dias Alto no Norte, mas só 6 no Sudeste, no período de teste. A causa provável é a época do ano: em outubro, o Sudeste sobe para 49. O Sul fica baixo nos dois períodos. O notebook traz o que fazer com isso.
+**Cada período tem um papel só:** os ajustes do Optuna são escolhidos em julho, agosto e setembro, dentro do treino; outubro serve só para os cortes e para as escolhas finais; o teste só mede.
+
+- **Otimização com o Optuna** (ferramenta que testa combinações de ajustes do modelo): 30 tentativas, cada uma avaliada em três dobras cronológicas (aprende com os meses anteriores e é avaliada no seguinte). O ganho foi pequeno: o acerto geral médio do LightGBM subiu de 0,5713 para 0,5731.
+- **Modelo final:** em outubro, a regressão logística da Etapa 2 (0,5822) ficou à frente do LightGBM otimizado (0,5817). Pela regra, ela é o modelo final.
+- **Um corte do Alto por tamanho de município:** em outubro, ele melhora o Alto nos municípios pequenos, mas reduz o acerto geral (0,5772 contra 0,5822). Pelo critério fixado antes, ficou o corte único.
+- **As 3 colunas que mais pesam, pelo SHAP** (método que mostra quanto cada coluna pesou em cada previsão): focos nos últimos 30 dias (20,2%), umidade mínima de ontem (12,2%) e área do município (10,5%).
+- **Viés:** o modelo avisa 74 de cada 100 dias Alto no Norte, mas só 7 no Sudeste, no período de teste. A causa provável é a época do ano: em outubro, o Sudeste sobe para 46. O Sul fica baixo nos dois períodos. O notebook traz o que fazer com isso.
 - **Boletim em texto com regra fixa:** frase padrão com o nível previsto e os 3 fatores do SHAP, sem modelo de linguagem (LLM). Assim, nada é inventado, não há chave de serviço pago num repositório público e o resultado é reproduzível.
-- **Modelo final guardado:** `resultados/etapa3/modelo_final.txt`, com as regras de decisão em `cortes_finais.json`.
+- **Modelo final guardado:** `resultados/etapa3/modelo_final.joblib`, com as regras de decisão em `cortes_finais.json`.
 
 ## Conclusão do projeto
 
 **Hipótese:** com o que se sabe até a véspera, um modelo avisa os dias de risco Alto melhor do que a regra "hoje = ontem" e reduz o custo de posicionar equipes.
 
-**Resposta: confirmada em parte.** O modelo final é melhor que a régua e custa menos, mas não atinge a meta de dias Alto avisados.
+**Resposta: confirmada em parte.** O modelo final, a regressão logística com corte único, é melhor que a régua e custa menos, mas não atinge a meta de dias Alto avisados.
 
 | Meta (período de teste) | Persistência | Modelo final | Atingida? |
 |---|---|---|---|
-| Acerto geral (F1 macro) de pelo menos 0,55 | 0,5490 | 0,5677 | **sim** |
-| Pelo menos 55 de cada 100 avisos Alto certos | 49,2 | 56,8 | **sim** |
-| Pelo menos 60 de cada 100 dias Alto avisados | 49,8 | 51,8 | **não** |
-| Custo menor que o da persistência | R$ 434,8 milhões | R$ 415,8 milhões | **sim** |
+| Acerto geral (F1 macro) de pelo menos 0,55 | 0,5490 | 0,5709 | **sim** |
+| Pelo menos 55 de cada 100 avisos Alto certos | 49,2 | 57,6 | **sim** |
+| Pelo menos 60 de cada 100 dias Alto avisados | 49,8 | 51,2 | **não** |
+| Custo menor que o da persistência | R$ 434,8 milhões | R$ 420,1 milhões | **sim** |
 
-O resultado depende da época do ano. Em novembro, mês do teste com mais fogo, o modelo atinge as duas metas do Alto (60,3 dias avisados e 62,2 avisos certos, de cada 100). Em janeiro e fevereiro, com poucos dias Alto, ele fica bem abaixo. A economia é uma estimativa, que depende da premissa dos 5 hectares; a comprovação viria do teste A/B planejado.
+O resultado depende da época do ano. Em novembro, mês do teste com mais fogo, o modelo atinge as duas metas do Alto (60,4 dias avisados e 61,7 avisos certos, de cada 100). Em janeiro e fevereiro, com poucos dias Alto, ele fica bem abaixo. A economia é uma estimativa, que depende da premissa dos 5 hectares; a comprovação viria do teste A/B planejado.
 
 ## Onde está cada entrega
 
@@ -172,6 +177,7 @@ O resultado depende da época do ano. Em novembro, mês do teste com mais fogo, 
 | Texto automático (opcional) | [`03_otimizacao_ia_responsavel.ipynb`](03_otimizacao_ia_responsavel.ipynb), seção 6, com regra fixa, sem LLM |
 | Etapa 4, deploy (opcional) | não feita |
 | Relatórios de avaliação | [`Relatorios/`](Relatorios/) |
+| Resposta à 1ª revisão, ponto a ponto | [`Relatorios/resposta_revisao_1.md`](Relatorios/resposta_revisao_1.md) |
 
 ## Como rodar
 

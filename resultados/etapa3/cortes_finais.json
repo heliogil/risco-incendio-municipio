@@ -1,4 +1,6 @@
 {
+ "modelo": "Regress\u00e3o log\u00edstica",
+ "corte": "corte \u00fanico",
  "limites_area_km2": [
   174.77,
   313.76,
@@ -6,10 +8,10 @@
   1320.11
  ],
  "corte_alto_por_faixa": [
-  0.35,
-  0.45,
-  0.4,
-  0.45,
+  0.55,
+  0.55,
+  0.55,
+  0.55,
   0.55
  ],
  "corte_medio": 0.5

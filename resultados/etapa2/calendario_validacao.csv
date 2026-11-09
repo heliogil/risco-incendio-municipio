@@ -1,0 +1,4 @@
+,sem calendário,com calendário,sem menos com
+Regressão logística,0.5822,0.5794,0.0028
+Floresta aleatória,0.5792,0.5801,-0.0009
+LightGBM,0.582,0.5762,0.0058
