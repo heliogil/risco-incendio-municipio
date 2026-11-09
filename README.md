@@ -114,7 +114,7 @@ O resultado é [`dados/processado/grade_municipio_dia.parquet`](dados/processado
 
 **Divisão por tempo:** o modelo aprende até setembro de 2024 (treino), as notas de corte (a partir de que probabilidade o dia vira aviso) são escolhidas em outubro (validação) e a nota final sai de novembro de 2024 a fevereiro de 2025 (teste). O teste cai na época de chuva, com menos dias Alto, e por isso a própria persistência vai pior ali do que na base inteira.
 
-**Calendário fora:** o treino não tem outubro a dezembro, então as colunas de mês e dia do ano foram testadas na validação, com uma regra fixada antes. Sem elas, os três modelos ficaram iguais ou melhores, e elas saíram do projeto.
+**Calendário fora:** o treino não tem outubro a dezembro, então as colunas de mês e dia do ano foram testadas na validação, com uma regra fixada antes. Sem elas, dois modelos melhoraram e a floresta ficou praticamente igual, e elas saíram do projeto.
 
 **Resultado no teste:**
 
@@ -194,7 +194,7 @@ jupyter nbconvert --to notebook --execute --inplace 02_modelagem.ipynb
 jupyter nbconvert --to notebook --execute --inplace 03_otimizacao_ia_responsavel.ipynb
 ```
 
-O `consolidar_base.py`, o `01_eda.ipynb` e o `criar_bioma_municipio.py` precisam dos arquivos brutos. Os notebooks 02 e 03 só precisam dos arquivos processados, que já estão no repositório, e levam cerca de 8 e 15 minutos.
+O `consolidar_base.py`, o `01_eda.ipynb` e o `criar_bioma_municipio.py` precisam dos arquivos brutos. Os notebooks 02 e 03 só precisam dos arquivos processados, que já estão no repositório, e levam cerca de 8 e 35 minutos.
 
 ## Estrutura
 
@@ -222,7 +222,7 @@ O `consolidar_base.py`, o `01_eda.ipynb` e o `criar_bioma_municipio.py` precisam
 - O clima vem da estação mais próxima da sede que mediu no dia, a até 400 km. Em município grande ou longe de estação, ele descreve o município só de forma aproximada; 1,55% dos município-dias usam clima de mais de 150 km.
 - Saíram da base 3 103 linhas sem nenhum clima, incluindo 4 municípios inteiros, todos no Amazonas.
 - Três municípios com focos (1 130 focos) não existem na base do MapBiomas e ficaram fora da grade.
-- O modelo avisa muito menos dias Alto no Sudeste e no Sul do que no Norte e no Nordeste, e vai pior que a persistência no Sudeste, no Sul, na Mata Atlântica e no Pampa no período de teste.
+- O modelo avisa muito menos dias Alto no Sudeste e no Sul do que no Norte e no Nordeste, e vai pior que a persistência no Sudeste, no Sul e na Mata Atlântica no período de teste.
 - Há só um ano de dados, com uma única estação seca no treino e nenhum dia de outubro a dezembro, meses que o modelo vê pela primeira vez na validação e no teste.
 - A área a mais que queima num dia Alto sem equipe (5 hectares) não tem fonte publicada; por isso a conta em reais vem com uma tabela de cenários.
 - As datas dos focos e as horas do INMET estão no horário de Greenwich (UTC/GMT). Um foco detectado depois das 21h no horário de Brasília conta para o dia seguinte.

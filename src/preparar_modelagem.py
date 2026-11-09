@@ -27,7 +27,7 @@ FEATURES_NUMERICAS = [
 ]
 FEATURES_CATEGORICAS = ['sigla_uf']
 # Calendário: testado na Etapa 2 e retirado. O treino não tem outubro a dezembro, e sem estas
-# colunas os três modelos foram iguais ou melhores na validação (02_modelagem.ipynb, seção 4).
+# colunas os modelos foram melhores ou praticamente iguais na validação (02_modelagem.ipynb, seção 4).
 FEATURES_CALENDARIO = ['mes', 'dia_do_ano']
 FEATURES = FEATURES_NUMERICAS + FEATURES_CATEGORICAS
 

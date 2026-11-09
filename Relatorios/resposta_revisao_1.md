@@ -1,6 +1,6 @@
 # Resposta à 1ª revisão do projeto final
 
-Os três ajustes pedidos foram feitos. Todas as decisões novas usam só o treino e a validação (outubro de 2024), com o
+Os três pontos pedidos foram atendidos. Todas as decisões novas usam só o treino e a validação (outubro de 2024), com o
 critério fixado antes de comparar; o teste (novembro de 2024 a fevereiro de 2025) só mede o resultado.
 
 ## 1. Outubro estava sendo usado para tudo
@@ -28,8 +28,8 @@ contra 0,5822). Pelo critério, ficou o corte único. A tabela do teste mostra o
 ## 3. Variáveis de calendário com um ano só de dados
 
 **O que mudou:** os três modelos foram treinados com e sem `mes` e `dia_do_ano` e comparados na validação, com a regra
-fixada antes: sair se a perda média no F1 macro fosse menor que 0,005. Sem as duas colunas, os modelos ficaram iguais ou
-melhores (regressão logística de 0,5794 para 0,5822; LightGBM de 0,5762 para 0,5820; floresta de 0,5801 para 0,5792).
+fixada antes: sair se a perda média no F1 macro fosse menor que 0,005. Sem as duas colunas, dois modelos melhoraram e a
+floresta ficou praticamente igual (regressão logística de 0,5794 para 0,5822; LightGBM de 0,5762 para 0,5820; floresta de 0,5801 para 0,5792).
 As duas colunas saíram do modelo, e o boletim não cita mais a época do ano como fator.
 
 **Onde:** `02_modelagem.ipynb`, seções 3 e 4, e `src/preparar_modelagem.py`.

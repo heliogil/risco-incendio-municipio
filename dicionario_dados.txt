@@ -89,7 +89,8 @@ CALENDÁRIO
 mes                numérica (int)    Mês (1 a 12).
 dia_do_ano         numérica (int)    Dia do ano (1 a 366).
 Estas duas colunas ficam na base, mas saíram do modelo: o treino não tem outubro
-a dezembro, e sem elas os modelos foram iguais ou melhores na validação (Etapa 2).
+a dezembro, e sem elas os modelos foram melhores ou praticamente iguais na validação
+(Etapa 2).
 
 
 USO DO SOLO (MapBiomas, ano de 2021, o mais recente da base)
